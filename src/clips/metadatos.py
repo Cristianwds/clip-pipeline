@@ -16,7 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .texto import CONJUNCIONES, es_funcional, limpio, sin_tildes
+from .texto import CONECTORES, CONJUNCIONES, es_funcional, limpio, sin_tildes
+
+# Las palabras ya vienen normalizadas sin tildes cuando se comparan.
+CONECTORES_SIN_TILDE = {sin_tildes(w) for w in CONECTORES}
 
 HASHTAGS_POR_TIPO = {
     "gracioso": ["humor", "risa", "momentosgraciosos"],
@@ -175,11 +178,7 @@ def elegir_cita(
             palabras = [sin_tildes(w) for w in frase.split()]
             if len(palabras) < 3 or len(frase) > maximo:
                 break
-            if len(set(palabras)) / len(palabras) < min_diversidad:
-                continue  # es un coreo, no una frase
-            # Y la señal más directa del coreo: la palabra del tema repetida. En una
-            # frase normal el asunto se nombra una vez; en un cantito, cuatro.
-            if any(palabras.count(k) > 1 for k in claves):
+            if _es_coreo(palabras):
                 continue
             # claves DISTINTAS, no apariciones: si no, "romance romance" le gana a
             # una frase entera solo por repetir la misma palabra dos veces
@@ -187,6 +186,28 @@ def elegir_cita(
             if puntaje > puntaje_mejor:
                 mejor, puntaje_mejor = frase, puntaje
     return _recortar_colgantes(mejor) if puntaje_mejor >= 1 else None
+
+
+def _es_coreo(palabras: list[str]) -> bool:
+    """¿La frase repite una palabra más de lo que su largo justifica?
+
+    Cuando el chat corea y el streamer lo lee en voz alta, la transcripción queda
+    «romance mátala creo que hay más mátala». Eso no se puede usar como cita, pero
+    cuesta distinguirlo: su proporción de palabras distintas es 0,86, igual que la de
+    una frase normal como «puedo poner a malas le puedo decir que se vaya a la
+    mierda», que también repite una palabra.
+
+    Lo que las separa es la **densidad de repetición**: cuántas palabras sobran en
+    total, no cuánto se repite la peor. Mirar solo la más repetida dejaba pasar
+    «mátala abuela mátala abuela le puedo decir que se vaya a la mierda», donde
+    ninguna llega a tres pero hay dos pares.
+
+    Se permite una repetición cada diez palabras. Y se miran solo las palabras con
+    contenido: que «que» o «la» se repitan no dice nada del texto.
+    """
+    con_contenido = [w for w in palabras if w not in CONECTORES_SIN_TILDE]
+    sobrantes = len(con_contenido) - len(set(con_contenido))
+    return sobrantes > len(palabras) // 10
 
 
 def _recortar_colgantes(frase: str | None) -> str | None:

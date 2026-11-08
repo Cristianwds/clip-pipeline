@@ -191,3 +191,23 @@ def test_una_frase_normal_pasa_el_filtro_de_diversidad():
     tokens = consolidar(parsear_tema(["mierda×5"]))
     lineas = ["puedo poner a malas", "le puedo decir", "que se vaya a la mierda"]
     assert elegir_cita(lineas, tokens), "una frase variada no se tiene que filtrar"
+
+
+def test_la_densidad_separa_el_coreo_de_la_frase():
+    """Repetir una palabra en siete es coreo; en trece, es como habla la gente."""
+    from clips.metadatos import _es_coreo
+    assert _es_coreo("romance matala creo que hay mas matala".split())
+    assert not _es_coreo(
+        "puedo poner a malas le puedo decir que se vaya a la mierda".split())
+
+
+def test_que_se_repitan_conectores_no_es_coreo():
+    from clips.metadatos import _es_coreo
+    assert not _es_coreo("que se viene la que se arma".split())
+
+
+def test_dos_pares_repetidos_tambien_son_coreo():
+    """Mirar solo la palabra mas repetida dejaba pasar esto: ninguna llega a tres."""
+    from clips.metadatos import _es_coreo
+    assert _es_coreo(
+        "matala abuela matala abuela le puedo decir que se vaya a la mierda".split())
