@@ -36,7 +36,7 @@ de que la lógica está mezclada con la E/S y conviene separarla.
 | `subtitulos.py` | Transcribe con faster-whisper y quema los subtítulos en ASS | Modelo de ASR, dónde cortan las líneas, estilo del subtítulo |
 | `estilos.py` | Las variantes de formato que rotan entre clips | Agregar una variante, cambiar largos o colores |
 | `metadatos.py` | Título, gancho, cita y hashtags desde el chat + el audio | Cómo se arman los textos del post |
-| `publicar.py` | Valida cada clip por plataforma y escribe el manifiesto | Límites de plataforma, horarios, payload de Postiz |
+| `publicar.py` | Valida cada clip por plataforma (TikTok, Reels, Shorts, X), escribe el manifiesto y un .txt por plataforma listo para pegar | Límites de plataforma, horarios, payload de Postiz |
 | `cuentas.py` | Registro de cuentas y estado de monetización. CLI propia | Agregar una plataforma, actualizar qué paga cada una |
 | `cli.py` | Orquesta todo. No tiene lógica propia | El orden de las etapas, flags nuevos |
 
@@ -83,9 +83,10 @@ módulo y en la nota del vault.
 - **El gancho se arma DESPUÉS de transcribir** (`cli.py`). Si no, sale con la falta de
   ortografía del chat quemada en pantalla. Por eso `subtitular` está partido en
   `preparar` y `rematar`.
-- **La etapa de publicación no publica** (`publicar.py`). Arma el manifiesto y para.
-  `paquete_postiz()` devuelve el payload sin hacer ninguna llamada. Es a propósito: son
-  clips de contenido de terceros y publicar es una decisión del usuario, no un paso.
+- **La etapa de publicación no publica** (`publicar.py`). Arma el manifiesto, deja un
+  `.txt` por plataforma listo para pegar, y para. `paquete_postiz()` devuelve el payload
+  sin hacer ninguna llamada. El usuario decidió publicar a mano en las cuatro
+  plataformas; automatizar el envío quedó pendiente de decisión.
 
 ## Trampas conocidas
 

@@ -147,3 +147,47 @@ def test_la_cita_no_queda_colgada_en_los_extremos():
     lineas = ["y encima", "que se vaya", "a la mierda", "y encima"]
     cita = elegir_cita(lineas, tokens)
     assert cita and not cita.endswith("encima") and not cita.startswith("y "), cita
+
+
+def test_x_tiene_el_limite_corto_de_texto():
+    """En X el texto es uno solo de 280: el recorte tiene que notarse."""
+    assert PLATAFORMAS["x"].max_descripcion == 280
+    assert PLATAFORMAS["x"].max_hashtags <= 3, "llenar X de hashtags rinde peor"
+
+
+def test_un_clip_de_treinta_segundos_entra_en_las_cuatro():
+    m = Medidas(segundos=28, mb=12, ancho=1080, alto=1920)
+    for clave, p in PLATAFORMAS.items():
+        assert not validar(m, p), (clave, validar(m, p))
+
+
+def test_el_plan_cubre_las_cuatro_plataformas():
+    assert set(PLATAFORMAS) == {"tiktok", "youtube_shorts", "instagram_reels", "x"}
+
+
+def test_los_textos_salen_uno_por_clip_y_plataforma(tmp_path):
+    from clips.publicar import escribir_textos
+    pub = Publicacion(clip="c.mp4", momento="0h00m00s", prioridad=1.0, titulo="T",
+                      descripcion="D", plataformas={
+                          k: {"nombre": v.nombre, "titulo": "T", "descripcion": "D"}
+                          for k, v in PLATAFORMAS.items()})
+    escritos = escribir_textos([pub], tmp_path)
+    assert len(escritos) == len(PLATAFORMAS)
+    assert (tmp_path / "textos" / "c.x.txt").read_text().strip() == "D", \
+        "en X el titulo no va aparte"
+    assert (tmp_path / "textos" / "c.tiktok.txt").read_text().startswith("T")
+
+
+def test_descarta_el_coreo_del_chat_como_cita():
+    """Caso real: el streamer lee el chat coreando y la transcripcion queda ilegible."""
+    tokens = consolidar(parsear_tema(["romance×13", "matala×20", "abuela×9"]))
+    lineas = ["romance mátala creo", "que hay más mátala", "si mátala abuela",
+              "mátala abuela", "le puedo decir", "que se vaya a la mierda"]
+    cita = elegir_cita(lineas, tokens)
+    assert cita is None or cita.lower().count("mátala") <= 1, cita
+
+
+def test_una_frase_normal_pasa_el_filtro_de_diversidad():
+    tokens = consolidar(parsear_tema(["mierda×5"]))
+    lineas = ["puedo poner a malas", "le puedo decir", "que se vaya a la mierda"]
+    assert elegir_cita(lineas, tokens), "una frase variada no se tiene que filtrar"

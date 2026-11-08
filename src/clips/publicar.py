@@ -39,6 +39,10 @@ PLATAFORMAS = {
     "tiktok": Plataforma("TikTok", 2200, 2200, 600, 500, 10, 19),
     "youtube_shorts": Plataforma("YouTube Shorts", 100, 5000, 180, 2000, 15, 18),
     "instagram_reels": Plataforma("Instagram Reels", 2200, 2200, 180, 1000, 12, 20),
+    # En X el texto es UNO solo y corto: 280 caracteres sin Premium. Por eso el titulo
+    # y la descripcion comparten el mismo limite y los hashtags se recortan a 3, que
+    # ademas es la convencion de la plataforma: llenar de hashtags rinde peor.
+    "x": Plataforma("X", 280, 280, 140, 512, 3, 21),
 }
 
 
@@ -179,8 +183,31 @@ def paquete_postiz(pub: Publicacion, plataforma: str) -> dict:
     }
 
 
+def escribir_textos(publicaciones: list[Publicacion], carpeta: Path) -> list[Path]:
+    """Un .txt por clip y plataforma, con el texto exacto para copiar y pegar.
+
+    Publicar a mano es abrir el archivo, copiar todo y pegarlo. Sin esto hay que ir
+    al manifiesto, encontrar el bloque y recortarlo a ojo, que es justo donde se
+    cuelan los errores (pegar el texto de TikTok en X y que se corte a la mitad).
+    """
+    destino = carpeta / "textos"
+    destino.mkdir(parents=True, exist_ok=True)
+    escritos = []
+    for pub in publicaciones:
+        base = Path(pub.clip).stem
+        for clave, datos in pub.plataformas.items():
+            f = destino / f"{base}.{clave}.txt"
+            cuerpo = datos["descripcion"]
+            # En X el texto es uno solo; en el resto el titulo va aparte.
+            texto = cuerpo if clave == "x" else f"{datos['titulo']}\n\n{cuerpo}"
+            f.write_text(texto.strip() + "\n", encoding="utf-8")
+            escritos.append(f)
+    return escritos
+
+
 def escribir(publicaciones: list[Publicacion], carpeta: Path) -> tuple[Path, Path]:
     carpeta.mkdir(parents=True, exist_ok=True)
+    escribir_textos(publicaciones, carpeta)
     js = carpeta / "plan_publicacion.json"
     js.write_text(json.dumps([asdict(p) for p in publicaciones], ensure_ascii=False,
                              indent=2), encoding="utf-8")
@@ -204,7 +231,8 @@ def _a_markdown(publicaciones: list[Publicacion]) -> str:
         for datos in p.plataformas.values():
             estado = "✅ listo" if not datos["problemas"] else "⚠️ " + "; ".join(datos["problemas"])
             out.append(f"| {datos['nombre']} | {datos.get('cuando', '—')} | {estado} |")
-        out += ["", "<details><summary>Texto del post</summary>", "",
+        out += ["", f"Texto listo para pegar: `salida/textos/{Path(p.clip).stem}.<plataforma>.txt`",
+                "", "<details><summary>Ver el texto</summary>", "",
                 "```", p.descripcion, "", " ".join("#" + h for h in p.hashtags), "```",
                 "", "</details>", ""]
     return "\n".join(out) + "\n"

@@ -331,6 +331,21 @@ La **cita** se arma juntando hasta cuatro líneas consecutivas de subtítulo, po
 líneas sueltas son fragmentos de 22 caracteres. Después se le recorta la cola que
 arranque en una conjunción, para que no termine en "...y encima".
 
+Las plataformas de destino son cuatro: TikTok, Instagram Reels, YouTube Shorts y X.
+
+### Texto listo para pegar
+
+Además del manifiesto, se escribe un `.txt` por clip y plataforma en `salida/textos/`:
+
+```
+pico_01_1h48m27s_18s_9x16_sub.tiktok.txt
+pico_01_1h48m27s_18s_9x16_sub.x.txt
+...
+```
+
+Publicar a mano es abrir el archivo, copiar todo y pegarlo. En X el texto va en uno solo
+(280 caracteres sin Premium); en el resto el título va aparte del cuerpo.
+
 ### Validación por plataforma
 
 Cada clip se mide con ffprobe y se compara contra los límites de cada plataforma

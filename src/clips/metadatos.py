@@ -155,6 +155,7 @@ def titular_desde(
 
 def elegir_cita(
     lineas: list[str], tokens: list[Token], maximo: int = 90, max_lineas: int = 4,
+    min_diversidad: float = 0.75,
 ) -> str | None:
     """La frase transcripta que mejor resume el momento.
 
@@ -174,6 +175,12 @@ def elegir_cita(
             palabras = [sin_tildes(w) for w in frase.split()]
             if len(palabras) < 3 or len(frase) > maximo:
                 break
+            if len(set(palabras)) / len(palabras) < min_diversidad:
+                continue  # es un coreo, no una frase
+            # Y la señal más directa del coreo: la palabra del tema repetida. En una
+            # frase normal el asunto se nombra una vez; en un cantito, cuatro.
+            if any(palabras.count(k) > 1 for k in claves):
+                continue
             # claves DISTINTAS, no apariciones: si no, "romance romance" le gana a
             # una frase entera solo por repetir la misma palabra dos veces
             puntaje = len(claves & set(palabras)) + 0.04 * len(palabras)
