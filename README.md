@@ -294,6 +294,7 @@ Estado **verificado el 2026-11-08** (las plataformas lo cambian seguido):
 | Facebook | Estrellas / monetización | Por invitación, pero el umbral de Estrellas es el más bajo |
 | Instagram Reels | Bonos de Reels | Por invitación; sirve para alcance, no para cobrar por vistas |
 | TikTok | Creator Rewards | **No.** Solo US, UK, DE, JP, KR, FR, MX y BR |
+| X (Twitter) | Original Content Rewards | Argentina está en la lista, pero el programa está hecho para no pagar contenido copiado, y hay que pagar Premium antes |
 
 > En el registro **no van contraseñas, tokens ni API keys**: se guarda el *nombre* de la
 > variable de entorno o la entrada del llavero donde vive cada credencial. Hay un chequeo

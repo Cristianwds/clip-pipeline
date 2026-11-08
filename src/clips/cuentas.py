@@ -66,6 +66,17 @@ PLATAFORMAS = {
         "Instagram → Centro de cuentas → Monetización",
         "Sirve para alcance y para que te contraten marcas, no para cobrar por vistas.",
     ),
+    "x": InfoPlataforma(
+        "X (Twitter)", "Original Content Rewards", "sí, con condiciones",
+        "18+, suscripción paga a Premium, 500 seguidores verificados y ~500.000 "
+        "impresiones de usuarios verificados en 90 días. El cobro sale por Stripe",
+        "https://help.x.com/en/using-x/creator-revenue-sharing",
+        "El programa viejo (Creator Revenue Sharing) cerró el 2026-09-07. El que lo "
+        "reemplaza se llama Original Content Rewards y está hecho justamente para NO "
+        "pagar contenido copiado: es el peor encaje posible para un canal de clips de "
+        "otro. Además hay que pagar Premium antes de cobrar nada, y falta confirmar "
+        "que Stripe abra cuentas en Argentina.",
+    ),
     "facebook": InfoPlataforma(
         "Facebook", "Monetización de contenido / Estrellas", "por invitación",
         "Estrellas: 500 seguidores durante 30 días seguidos y ser mayor de 18",
