@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+
+# Contenido descargado y generado: VODs, chats, clips. No va al repo ni por peso ni
+# porque es contenido de terceros. Las carpetas quedan, vacías.
+datos/*
+!datos/.gitkeep
+salida/*
+!salida/.gitkeep

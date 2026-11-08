@@ -1,0 +1,6 @@
+numpy>=2.0
+opencv-python-headless>=4.10   # reencuadre: analisis de movimiento
+faster-whisper>=1.2            # subtitulos: ASR en CPU
+# yt-dlp y ffmpeg van aparte, como binarios del sistema: conviene tenerlos siempre
+# actualizados porque YouTube cambia de formato seguido.
+# TwitchDownloaderCLI tambien va aparte, ver la seccion de Twitch en el README.
