@@ -387,3 +387,7 @@ automático.
 Hay un [CLAUDE.md](CLAUDE.md) con el mapa de dependencias, las decisiones ya tomadas y
 las trampas conocidas, para no tener que leer todo el código antes de un cambio chico.
 
+
+## Licencia
+
+[MIT](LICENSE) © 2026 Cristian Walicki de los Santos.
