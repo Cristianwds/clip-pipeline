@@ -186,7 +186,7 @@ def aplicar_analisis(vod: dict, resultado: dict, ahora: datetime | None = None) 
     vod["picos"] = fusionar_picos(vod.get("picos", []), resultado["picos"])
     vod.update(estado="analizado", error="",
                mensajes=resultado["mensajes"], duracion=resultado["duracion"],
-               umbral=resultado["umbral"],
+               umbral=resultado["umbral"], ventana=resultado.get("ventana", 5.0),
                analizado=(ahora or datetime.now()).isoformat(timespec="seconds"))
     return vod
 
@@ -273,10 +273,11 @@ def analizar_url(url: str, top: int = TOP) -> dict:
     if not mensajes:
         raise chat.ChatNoDisponible("el chat bajó vacío")
     dur = mensajes[-1].t
-    detectados = mod_picos.detectar(mensajes, top=top)
+    ventana = mod_picos.ventana_sugerida(mensajes)
+    detectados = mod_picos.detectar(mensajes, ventana=ventana, top=top)
     return {
-        "mensajes": len(mensajes), "duracion": dur,
-        "umbral": mod_picos.umbral_automatico(int(dur / 5.0)),
+        "mensajes": len(mensajes), "duracion": dur, "ventana": ventana,
+        "umbral": mod_picos.umbral_automatico(int(dur / ventana)),
         "picos": [pico_a_dict(p, n) for n, p in enumerate(detectados, 1)],
     }
 

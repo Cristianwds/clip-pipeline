@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 144 tests, corren en ~1,5 s
+.venv/bin/python -m pytest tests/ -q          # 148 tests, corren en ~1,5 s
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -73,6 +73,14 @@ módulo y en la nota del vault.
 - **Anscombe + umbral por Bonferroni** (`picos.py`). Un umbral ingenuo de 3 sigmas
   devolvía 10 "highlights" en un chat sintético donde no pasaba nada. Un chat es un
   proceso de conteo y su ruido crece con `sqrt(n)`.
+- **La ventana se ensancha para chats chicos, el umbral no se toca**
+  (`picos.ventana_sugerida`). Con 5 s fijos, cinco VODs de canales medianos (0,13 a
+  0,46 msg/s) dieron 0 o 1 pico: hay menos de un mensaje por bin y Anscombe deja de
+  valer. Se apunta a ~4 mensajes por ventana, con tope de 30 s. En chats sintéticos
+  la detección pasó de 6/40 a 40/40 sin un solo falso positivo en 80 chats planos.
+  Para más de 0,8 msg/s da 5 s: lo validado con chats grandes no cambió.
+- **La línea de base tiene un mínimo de 60 bins** (`picos.BINS_BASE_MINIMOS`). Con
+  ventanas de 30 s, 10 minutos son 20 bins y el MAD salía inflado.
 - **Especificidad contra los otros picos** (`vocabulario.py`). Comparar contra todo el
   stream no alcanza: durante *cualquier* pico sube la proporción de emotes. Un token
   que se eleva en muchos picos es reacción, en uno solo es el asunto.
@@ -129,6 +137,10 @@ módulo y en la nota del vault.
   plataformas). No volver a agregarlo.
 - **faster-whisper no decodifica bien el audio acá** (incompatibilidad con PyAV). El
   audio se extrae con ffmpeg y se le pasa como array.
+- **Los espectadores no predicen el chat.** Un canal de 363 espectadores promedio
+  tenía 0,88 msg/s y otro de 790, 0,13. Lo que decide si el detector sirve para un
+  streamer es la tasa de mensajes; por debajo de ~0,4 msg/s casi no salen picos, con
+  cualquier ventana.
 - **El `<iframe>` de YouTube necesita `referrerpolicy`.** Sin mandar el origen, el
   reproductor embebido queda en negro (error 153). Y Twitch exige `parent=` igual al
   host: por eso el panel se abre como `localhost`, que es el único host que acepta sin https.

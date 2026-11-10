@@ -89,6 +89,49 @@ def umbral_automatico(n_bins: int, alpha: float = 0.01) -> float:
     return round((lo + hi) / 2, 2)
 
 
+VENTANA_BASE = 5.0      # segundos; la que se usó en todas las pruebas con chats grandes
+VENTANA_MAXIMA = 30.0
+MENSAJES_POR_VENTANA = 4.0
+BINS_BASE_MINIMOS = 60
+
+
+def ventana_sugerida(mensajes: list[Mensaje]) -> float:
+    """Tamaño de bin para que en una ventana normal haya unos 4 mensajes.
+
+    Con 5 segundos fijos, un chat de 0,15 msg/s tiene menos de un mensaje por
+    ventana, y ahí pasan dos cosas: Anscombe deja de estabilizar la varianza (la
+    aproximación vale para medias de 4 o más) y una reacción de 12 mensajes
+    repartidos en 20 segundos nunca junta lo suficiente en un solo bin. En la prueba
+    con canales medianos, cinco VODs de 0,13 a 0,46 msg/s dieron entre 0 y 1 pico.
+
+    Se ensancha la ventana en vez de bajar el umbral, porque el umbral es lo que
+    impide inventar picos: una ventana más ancha solo junta la misma evidencia en
+    menos pedazos. Para chats de más de 0,8 msg/s da 5 s, o sea que todo lo ya
+    validado con chats grandes no cambia.
+
+    Va en múltiplos de 5 y con tope de 30: más que eso ya no ubica el momento.
+    """
+    if len(mensajes) < 2 or mensajes[-1].t <= 0:
+        return VENTANA_BASE
+    tasa = len(mensajes) / mensajes[-1].t
+    cruda = MENSAJES_POR_VENTANA / tasa
+    redonda = math.ceil(cruda / VENTANA_BASE - 1e-9) * VENTANA_BASE
+    return float(min(max(redonda, VENTANA_BASE), VENTANA_MAXIMA))
+
+
+def _afinar(t: np.ndarray, inicio: float, fin: float, paso: float = VENTANA_BASE) -> float:
+    """Dentro de una ventana ancha, el centro del tramo de `paso` segundos con más
+    mensajes. Una ventana de 30 s detecta el pico pero lo ubica con ±15 s de error,
+    y el clip se corta con 4 a 9 segundos de entrada: sin afinar, el momento puede
+    quedar afuera."""
+    mejor, cuenta_mejor = inicio, -1
+    for x in np.arange(inicio, fin - paso + 1e-9, 1.0):
+        cuenta = int(np.searchsorted(t, x + paso) - np.searchsorted(t, x))
+        if cuenta > cuenta_mejor:
+            mejor, cuenta_mejor = x, cuenta
+    return float(mejor + paso / 2)
+
+
 def detectar(
     mensajes: list[Mensaje],
     ventana: float = 5.0,
@@ -124,7 +167,10 @@ def detectar(
 
     # Anscombe: deja el ruido de conteo con varianza ~1 para cualquier tasa base
     y = 2.0 * np.sqrt(cuenta + 0.375)
-    med_y, mad_y = _mediana_movil(y, int(base_seg / ventana))
+    # La línea de base necesita bins suficientes, no solo segundos: con ventanas de
+    # 30 s, 10 minutos son 20 bins y el MAD estimado sobre 20 valores salía inflado
+    # la mitad de las veces, tapando picos reales. Con 5 y 10 s esto no cambia nada.
+    med_y, mad_y = _mediana_movil(y, max(int(base_seg / ventana), BINS_BASE_MINIMOS))
     sigma = np.maximum(1.4826 * mad_y, 1.0)  # el piso teórico del ruido es 1
     score = (y - med_y) / sigma
 
@@ -156,6 +202,10 @@ def detectar(
 
     if not candidatos:
         return []
+
+    if ventana > VENTANA_BASE:
+        for p in candidatos:
+            p.t = _afinar(t, p.t - ventana / 2, p.t + ventana / 2)
 
     for p, a in zip(candidatos, vocabulario.analizar_picos(
             mensajes, [p.t for p in candidatos], ventana)):

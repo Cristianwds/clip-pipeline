@@ -203,6 +203,13 @@ function tablaMedidas(titulo, filas) {
     <tr><th></th><th class="num">revisados</th><th class="num">buenos</th><th class="num">dudosos</th><th class="num">malos</th><th class="num">precisión</th></tr>
     ${cuerpo || '<tr><td colspan="6" class="tenue">Sin datos.</td></tr>'}</table></div></div>`;
 }
+// Por debajo de ~0,4 msg/s el chat casi no marca picos (medido con canales medianos):
+// se avisa en la tabla para que un VOD sin picos no parezca un error.
+function tasaChat(v) {
+  if (!v.mensajes || !v.duracion) return "";
+  const tasa = v.mensajes / v.duracion;
+  return `<div class="chica ${tasa < 0.4 ? "" : "tenue"}" ${tasa < 0.4 ? 'style="color:var(--duda)" title="Chat chico: es esperable que salgan pocos picos o ninguno"' : ""}>${tasa.toFixed(2)} msg/s</div>`;
+}
 function vistaTablero(m) {
   const pr = S.precision, top = pr.top_k;
   const producidos = clips().filter((c) => c.p.clip);
@@ -218,7 +225,7 @@ function vistaTablero(m) {
       <td><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.titulo || v.url.replace("https://www.", ""))}</a>
         ${v.error ? `<div class="chica" style="color:var(--mal)">${esc(v.error)}</div>` : ""}</td>
       <td><span class="sello ${esc(v.estado)}">${esc(v.estado)}</span></td>
-      <td class="num">${horas(v.duracion)}</td><td class="num">${v.mensajes ? v.mensajes.toLocaleString("es") : "—"}</td>
+      <td class="num">${horas(v.duracion)}</td><td class="num">${v.mensajes ? v.mensajes.toLocaleString("es") : "—"}${tasaChat(v)}</td>
       <td class="num">${cp.length || "—"}</td><td class="num">${cp.length ? rev + "/" + cp.length : "—"}</td>
       <td class="num">${rev ? buenos : "—"}</td>
       <td><button class="chico" data-analizar="${esc(v.id)}">${v.estado === "analizado" ? "Reanalizar" : "Analizar"}</button></td></tr>`;

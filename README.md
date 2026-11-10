@@ -78,6 +78,21 @@ El panel tiene cuatro pestañas:
 Analizar un VOD solo baja el chat, así que revisar 50 picos no ocupa disco: el video se
 mira embebido desde la plataforma y recién se corta el clip de lo que se aprueba.
 
+### Chats chicos
+
+El detector necesita chat. Medido con VODs de canales medianos:
+
+| Chat | Qué sale |
+| :--- | :--- |
+| más de ~0,8 msg/s | Lo mismo que con los canales grandes: varios picos por VOD |
+| 0,4 a 0,8 msg/s | 3 a 5 picos por VOD, usando una ventana más ancha |
+| menos de 0,2 msg/s | 0 o 1 pico: no alcanza la señal |
+
+Para chats de menos de 0,8 msg/s la ventana se ensancha sola (de 5 s hasta 30 s) para
+juntar unos 4 mensajes por bin; el umbral no cambia. **Los espectadores promedio no
+predicen la tasa de chat**: antes de ofrecerle el servicio a un streamer hay que correr
+un VOD suyo y mirar los msg/s, que el tablero muestra en la columna de mensajes.
+
 ### Cuánto acierta
 
 La revisión no es solo un filtro: cada veredicto queda guardado y el tablero calcula la

@@ -23,7 +23,8 @@ def link(url: str, p: mod_picos.Pico) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Detecta highlights en un VOD usando el chat.")
     ap.add_argument("url", help="URL del VOD de Twitch o YouTube")
-    ap.add_argument("--ventana", type=float, default=5.0, help="bin en segundos (default 5)")
+    ap.add_argument("--ventana", type=float, default=None,
+                    help="bin en segundos (default: 5, o más ancho si el chat es chico)")
     ap.add_argument("--base", type=float, default=600.0, help="ancho de la mediana movil (default 600s)")
     ap.add_argument("--umbral", type=float, default=None, help="score minimo en sigmas (default: automatico segun duracion)")
     ap.add_argument("--separacion", type=float, default=90.0, help="segundos minimos entre picos")
@@ -83,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(mensajes)} mensajes sobre {dur / 3600:.1f} h "
           f"({len(mensajes) / max(dur, 1):.2f} msg/s de promedio)\n")
 
+    if a.ventana is None:
+        a.ventana = mod_picos.ventana_sugerida(mensajes)
+        if a.ventana > mod_picos.VENTANA_BASE:
+            print(f"Chat chico: ventana de {a.ventana:.0f} s en vez de 5\n")
     picos = mod_picos.detectar(
         mensajes, ventana=a.ventana, base_seg=a.base,
         umbral=a.umbral, separacion=a.separacion,
