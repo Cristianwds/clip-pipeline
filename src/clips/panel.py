@@ -164,12 +164,10 @@ CANDADO = threading.RLock()
 
 
 def mutar(fn):
-    """Lee el estado, lo modifica y lo guarda, todo bajo el candado."""
-    with CANDADO:
-        estado = lote.cargar()
-        r = fn(estado)
-        lote.guardar(estado)
-        return r
+    """Lee el estado, lo modifica y lo guarda. El candado del proceso ordena los hilos
+    del panel; el del archivo (`lote.transaccion`), al panel con `lote correr`."""
+    with CANDADO, lote.transaccion() as estado:
+        return fn(estado)
 
 
 def _vod_o_error(estado: dict, id_vod: str) -> dict:

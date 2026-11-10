@@ -92,6 +92,42 @@ def test_aplicar_analisis_limpia_el_error_anterior():
     assert (vod["estado"], vod["error"], len(vod["picos"])) == ("analizado", "", 1)
 
 
+def test_el_lote_no_pisa_un_veredicto_puesto_mientras_corria(tmp_path, monkeypatch):
+    ruta = tmp_path / "lote.json"
+    with lote.transaccion(ruta) as estado:
+        ya, _ = lote.agregar_vod(estado, "https://www.twitch.tv/videos/1")
+        lote.aplicar_analisis(ya, {"picos": [_pico(100.0, 1)], "mensajes": 1,
+                                   "duracion": 1.0, "umbral": 4.0})
+        lote.agregar_vod(estado, "https://www.twitch.tv/videos/2")
+        lote.agregar_vod(estado, "https://www.twitch.tv/videos/3")
+
+    def analizar_falso(url):
+        # mientras "baja el chat", alguien revisa en el panel (otro proceso)
+        with lote.transaccion(ruta) as estado:
+            lote.poner_veredicto(estado["vods"][0], 100.0, "bueno")
+        if url.endswith("/3"):
+            raise RuntimeError("VOD solo para suscriptores")
+        return {"picos": [_pico(50.0, 1)], "mensajes": 5, "duracion": 60.0, "umbral": 4.0}
+
+    monkeypatch.setattr(lote, "analizar_url", analizar_falso)
+    assert lote.correr(ruta, log=lambda _: None) == (1, 1)
+    vods = lote.cargar(ruta)["vods"]
+    assert vods[0]["picos"][0]["veredicto"] == "bueno"
+    assert [v["estado"] for v in vods] == ["analizado", "analizado", "error"]
+    assert vods[2]["error"] == "VOD solo para suscriptores"
+
+
+def test_una_transaccion_que_falla_no_guarda_nada(tmp_path):
+    ruta = tmp_path / "lote.json"
+    with lote.transaccion(ruta) as estado:
+        lote.agregar_vod(estado, "https://www.twitch.tv/videos/1")
+    with pytest.raises(ValueError):
+        with lote.transaccion(ruta) as estado:
+            lote.agregar_vod(estado, "https://www.twitch.tv/videos/2")
+            lote.agregar_vod(estado, "esto no es una url")
+    assert len(lote.cargar(ruta)["vods"]) == 1
+
+
 # ---------------------------------------------------------------- veredictos y publicación
 
 def test_veredicto_invalido_o_pico_inexistente_se_rechazan():

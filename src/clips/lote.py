@@ -16,6 +16,8 @@ sin tener el estado tomado: mientras tanto se puede seguir revisando.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import re
 import subprocess
@@ -91,6 +93,26 @@ def guardar(estado: dict, ruta: Path | None = None) -> Path:
     parcial.write_text(json.dumps(estado, ensure_ascii=False, indent=1), encoding="utf-8")
     parcial.replace(ruta)
     return ruta
+
+
+@contextlib.contextmanager
+def transaccion(ruta: Path | None = None):
+    """Lee el estado, lo presta para modificarlo y lo guarda, con el archivo tomado.
+
+    El panel y `lote correr` son procesos distintos que escriben el mismo archivo. La
+    primera versión de `correr` cargaba el estado una vez al empezar y lo guardaba
+    después de cada VOD: todo veredicto puesto en el panel mientras tanto se pisaba
+    con la copia vieja. Ahora nadie guarda una copia que no haya leído recién.
+
+    Si el bloque levanta una excepción, no se guarda nada.
+    """
+    ruta = ruta or ESTADO
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    with open(ruta.with_suffix(".candado"), "w") as candado:
+        fcntl.flock(candado, fcntl.LOCK_EX)
+        estado = cargar(ruta)
+        yield estado
+        guardar(estado, ruta)
 
 
 def buscar(estado: dict, id_vod: str) -> dict | None:
@@ -324,26 +346,38 @@ def aplicar_clip(pico: dict, resultado: dict) -> dict:
     return pico
 
 
-def correr(estado: dict, al_avanzar=None, log=print) -> tuple[int, int]:
+def correr(ruta: Path | None = None, log=print) -> tuple[int, int]:
     """Analiza todos los pendientes. Devuelve (analizados, fallidos).
 
     Un VOD que falla queda marcado con su error y el lote sigue: lo normal en un
     lote es que alguno falle (VOD solo para suscriptores, chat borrado) y eso no
     puede frenar a los otros nueve.
+
+    El estado se toma solo para aplicar cada resultado, nunca durante la descarga:
+    así se puede revisar en el panel mientras el lote corre.
     """
+    pendientes = [(v["id"], v["url"], v.get("streamer") or "?")
+                  for v in cargar(ruta)["vods"] if v["estado"] == "pendiente"]
     bien = mal = 0
-    for vod in [v for v in estado["vods"] if v["estado"] == "pendiente"]:
-        log(f"[{vod.get('streamer') or '?'}] {vod['url']}")
+    for id_vod, url, streamer in pendientes:
+        log(f"[{streamer}] {url}")
+        resultado, error = None, ""
         try:
-            aplicar_analisis(vod, analizar_url(vod["url"]))
-            bien += 1
-            log(f"  {len(vod['picos'])} picos")
+            resultado = analizar_url(url)
         except Exception as e:
-            marcar_error(vod, str(e))
-            mal += 1
-            log(f"  ! {e}")
-        if al_avanzar:
-            al_avanzar(estado)
+            error = str(e)
+        with transaccion(ruta) as estado:
+            vod = buscar(estado, id_vod)
+            if vod is None:              # lo sacaron de la cola mientras se analizaba
+                continue
+            if resultado is None:
+                marcar_error(vod, error)
+                mal += 1
+                log(f"  ! {error}")
+            else:
+                aplicar_analisis(vod, resultado)
+                bien += 1
+                log(f"  {len(resultado['picos'])} picos")
     return bien, mal
 
 
@@ -381,15 +415,14 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("estado")
     a = ap.parse_args(argv)
 
-    estado = cargar()
     if a.cmd == "agregar":
-        for url in a.urls:
-            try:
-                vod, nuevo = agregar_vod(estado, url, a.streamer)
-                print(("+ " if nuevo else "= ya estaba: ") + vod["url"])
-            except ValueError as e:
-                print(f"! {e}")
-        guardar(estado)
+        with transaccion() as estado:
+            for url in a.urls:
+                try:
+                    vod, nuevo = agregar_vod(estado, url, a.streamer)
+                    print(("+ " if nuevo else "= ya estaba: ") + vod["url"])
+                except ValueError as e:
+                    print(f"! {e}")
     elif a.cmd == "descubrir":
         todos = mod_perfiles.cargar()
         elegidos = [p for p in todos if not a.streamer
@@ -404,14 +437,15 @@ def main(argv: list[str] | None = None) -> int:
                 except RuntimeError as e:
                     print(f"! {e}")
                     continue
-                for d in encontrados:
-                    _, nuevo = agregar_vod(estado, d["url"], perfil.nombre, d["titulo"])
-                    if nuevo:
-                        print(f"+ [{perfil.nombre}] {d['titulo'][:60]}  {d['url']}")
-        guardar(estado)
+                with transaccion() as estado:
+                    for d in encontrados:
+                        _, nuevo = agregar_vod(estado, d["url"], perfil.nombre, d["titulo"])
+                        if nuevo:
+                            print(f"+ [{perfil.nombre}] {d['titulo'][:60]}  {d['url']}")
     elif a.cmd == "correr":
-        bien, mal = correr(estado, al_avanzar=guardar)
+        bien, mal = correr()
         print(f"\n{bien} analizados, {mal} con error")
+    estado = cargar()
     print("\n" + _texto_estado(estado))
     return 0
 
