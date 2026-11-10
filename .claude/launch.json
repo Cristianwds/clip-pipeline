@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "panel",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PYTHONPATH=src", ".venv/bin/python", "-u", "-m", "clips.panel"],
+      "port": 8765
+    }
+  ]
+}

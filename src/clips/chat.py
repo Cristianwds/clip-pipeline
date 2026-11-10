@@ -31,8 +31,21 @@ TWITCH_CLI = Path(
 )
 
 
+# Tope para bajar un chat. En modo lote nadie mira la terminal: una descarga colgada
+# frenaba la cola entera sin dar error. Un chat de 14 h baja en bastante menos que esto.
+TIEMPO_MAXIMO = float(os.environ.get("CLIP_PIPELINE_TIMEOUT_CHAT", 2700))
+
+
 class ChatNoDisponible(RuntimeError):
     pass
+
+
+def _correr(cmd: list[str]) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=TIEMPO_MAXIMO)
+    except subprocess.TimeoutExpired:
+        raise ChatNoDisponible(
+            f"la descarga del chat no terminó en {TIEMPO_MAXIMO / 60:.0f} min y se cortó") from None
 
 
 @dataclass
@@ -90,11 +103,8 @@ def _desde_twitch(url: str) -> list[Mensaje]:
     with tempfile.TemporaryDirectory() as tmp:
         salida = Path(tmp) / "chat.json"
         print(f"  bajando chat del VOD {vod} con TwitchDownloaderCLI...", flush=True)
-        r = subprocess.run(
-            [str(TWITCH_CLI), "chatdownload", "--id", vod,
-             "-o", str(salida), "--collision", "overwrite"],
-            capture_output=True, text=True,
-        )
+        r = _correr([str(TWITCH_CLI), "chatdownload", "--id", vod,
+                     "-o", str(salida), "--collision", "overwrite"])
         if not salida.exists():
             detalle = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or ["sin detalle"]
             raise ChatNoDisponible(f"TwitchDownloaderCLI falló: {detalle[0]}")
@@ -125,7 +135,7 @@ def _desde_ytdlp(url: str) -> list[Mensaje]:
             "--no-warnings", "-o", str(base), url,
         ]
         print("  bajando chat con yt-dlp...", flush=True)
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = _correr(cmd)
         archivos = list(Path(tmp).glob("*.live_chat.json"))
         if not archivos:
             detalle = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or ["sin detalle"]

@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline de clips</title>
+<style>
+:root {
+  --fondo: #f6f5f1; --panel: #ffffff; --borde: #dedbd2; --texto: #1d1c1a; --tenue: #6b6860;
+  --acento: #5b3fd6; --acento-texto: #ffffff; --bien: #1f8a4c; --duda: #b07a00; --mal: #c23b32;
+  --chip: #eeece5; --sombra: 0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #151517; --panel: #1e1e22; --borde: #303036; --texto: #ececf0; --tenue: #9a9aa5;
+    --acento: #9a86ff; --acento-texto: #14141a; --bien: #4cc27d; --duda: #e0b040; --mal: #f0716a;
+    --chip: #2a2a30; --sombra: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--fondo); color: var(--texto);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel);
+  border-bottom: 1px solid var(--borde); padding: 10px 20px; display: flex; gap: 18px;
+  align-items: center; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; letter-spacing: -.01em; }
+nav { display: flex; gap: 4px; }
+nav button { background: none; border: 0; color: var(--tenue); padding: 6px 12px;
+  border-radius: 8px; font: inherit; cursor: pointer; }
+nav button.activa { background: var(--chip); color: var(--texto); font-weight: 600; }
+nav .cuenta { font-size: 12px; background: var(--acento); color: var(--acento-texto);
+  border-radius: 10px; padding: 0 6px; margin-left: 4px; }
+#estado-trabajo { margin-left: auto; font-size: 13px; color: var(--tenue); display: flex;
+  gap: 14px; align-items: center; }
+.punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--tenue); margin-right: 6px; }
+.punto.activo { background: var(--bien); animation: late 1.2s infinite; }
+@keyframes late { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .punto.activo { animation: none; } }
+main { max-width: 1180px; margin: 0 auto; padding: 20px; }
+h2 { font-size: 15px; margin: 26px 0 10px; }
+.tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px;
+  padding: 16px; box-shadow: var(--sombra); }
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.cifra .n { font-size: 28px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.cifra .l { color: var(--tenue); font-size: 13px; }
+.cifra .s { font-size: 12px; color: var(--tenue); margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; color: var(--tenue); font-weight: 500; font-size: 12px; padding: 6px 8px;
+  border-bottom: 1px solid var(--borde); white-space: nowrap; }
+td { padding: 8px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.desborde { overflow-x: auto; }
+a { color: var(--acento); }
+button, .boton { font: inherit; font-size: 14px; border: 1px solid var(--borde); background: var(--panel);
+  color: var(--texto); border-radius: 8px; padding: 6px 12px; cursor: pointer; text-decoration: none;
+  display: inline-block; }
+button:hover, .boton:hover { border-color: var(--tenue); }
+button.principal { background: var(--acento); border-color: var(--acento); color: var(--acento-texto); font-weight: 600; }
+button.bien { border-color: var(--bien); color: var(--bien); }
+button.duda { border-color: var(--duda); color: var(--duda); }
+button.mal { border-color: var(--mal); color: var(--mal); }
+button.chico, .boton.chico { font-size: 12px; padding: 3px 8px; }
+button:focus-visible, input:focus-visible, select:focus-visible, .boton:focus-visible {
+  outline: 2px solid var(--acento); outline-offset: 1px; }
+input, select, textarea { font: inherit; font-size: 14px; background: var(--fondo); color: var(--texto);
+  border: 1px solid var(--borde); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+form.linea { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+form.linea input[type=url], form.linea input.ancho { flex: 1 1 260px; }
+label { font-size: 12px; color: var(--tenue); display: block; margin-bottom: 3px; }
+.chip { display: inline-block; background: var(--chip); border-radius: 6px; padding: 1px 7px;
+  margin: 0 4px 4px 0; font-size: 13px; }
+.chip.reaccion { color: var(--tenue); }
+.sello { font-size: 12px; border-radius: 6px; padding: 1px 7px; border: 1px solid var(--borde);
+  color: var(--tenue); white-space: nowrap; }
+.sello.bueno, .sello.analizado, .sello.concedido { color: var(--bien); border-color: var(--bien); }
+.sello.dudoso, .sello.pendiente, .sello.pedido { color: var(--duda); border-color: var(--duda); }
+.sello.malo, .sello.error, .sello.negado { color: var(--mal); border-color: var(--mal); }
+.tenue { color: var(--tenue); } .chica { font-size: 13px; }
+.aviso { border-left: 3px solid var(--duda); padding: 6px 10px; background: var(--chip);
+  border-radius: 0 8px 8px 0; font-size: 13px; margin: 8px 0; }
+pre#registro { margin: 0; max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap;
+  color: var(--tenue); }
+.revision { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); gap: 16px; }
+@media (max-width: 860px) { .revision { grid-template-columns: 1fr; } }
+.reproductor { aspect-ratio: 16/9; width: 100%; border: 0; border-radius: 10px; background: #000; display: block; }
+.botonera { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+kbd { font: 11px ui-monospace, monospace; border: 1px solid currentColor; border-radius: 4px;
+  padding: 0 4px; margin-left: 6px; opacity: .7; }
+.clip { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 16px; margin-bottom: 14px; }
+@media (max-width: 700px) { .clip { grid-template-columns: 1fr; } }
+.clip video { width: 100%; aspect-ratio: 9/16; border-radius: 10px; background: #000; }
+.hueco { aspect-ratio: 9/16; border: 1px dashed var(--borde); border-radius: 10px; display: grid;
+  place-items: center; text-align: center; color: var(--tenue); font-size: 13px; padding: 10px; }
+.fila-plat { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px 0;
+  border-top: 1px solid var(--borde); }
+.fila-plat .nombre { width: 120px; font-weight: 600; font-size: 14px; }
+.fila-plat input.url { flex: 1 1 160px; } .fila-plat input.vistas { width: 90px; }
+.rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.rejilla .todo { grid-column: 1 / -1; }
+#toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--texto);
+  color: var(--fondo); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0;
+  transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+#toast.visible { opacity: 1; }
+.barra { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.barra i { display: block; height: 100%; background: var(--acento); }
+</style>
+</head>
+<body>
+<header>
+  <h1>✂️ Pipeline de clips</h1>
+  <nav id="pestanas"></nav>
+  <div id="estado-trabajo"></div>
+</header>
+<main id="vista"><p class="tenue">Cargando…</p></main>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+let S = null, pestana = localStorage.getItem("pestana") || "tablero";
+let huella = "", claveReproductor = "", soloTop = true;
+const saltados = new Set();
+const $ = (s, r = document) => r.querySelector(s);
+// Todo lo que viene del chat (temas, títulos) es texto de terceros: siempre escapado.
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (x) => (x == null ? "—" : Math.round(x * 100) + "%");
+const horas = (s) => (s ? (s / 3600).toFixed(1) + " h" : "—");
+
+// Solo se toca el DOM si cambió. La cabecera se actualiza cada 2,5 s: reemplazar un
+// botón entre el mousedown y el mouseup se come el click.
+function poner(el, html) { if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; } }
+function toast(m) {
+  const t = $("#toast"); t.textContent = m; t.classList.add("visible");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("visible"), 2600);
+}
+async function post(ruta, datos) {
+  const r = await fetch(ruta, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(datos) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast("No se pudo: " + (j.error || r.status)); return null; }
+  await refrescar(true);
+  return j;
+}
+async function refrescar(forzar) {
+  let d;
+  try { d = await (await fetch("/api/estado")).json(); }
+  catch { $("#estado-trabajo").innerHTML = '<span><i class="punto"></i>panel desconectado</span>'; return; }
+  S = d;
+  pintarTrabajo();
+  const h = JSON.stringify([d.vods, d.perfiles]);
+  // Si estás escribiendo en un formulario no se redibuja: se perdería lo tipeado.
+  const escribiendo = $("#vista").contains(document.activeElement) &&
+    /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (forzar || (h !== huella && !escribiendo)) { huella = h; pintar(); }
+  const reg = $("#registro");
+  if (reg) { reg.textContent = d.trabajos.registro.join("\n") || "Sin actividad todavía."; reg.scrollTop = reg.scrollHeight; }
+}
+
+// ---------- datos derivados
+function picosDe(filtro) {
+  const out = [];
+  for (const v of S.vods) for (const p of v.picos) if (filtro(p, v)) out.push({ v, p });
+  return out;
+}
+const colaRevision = () => picosDe((p, v) =>
+  p.puesto > 0 && !p.veredicto && (!soloTop || p.puesto <= 5) && !saltados.has(v.id + p.t));
+const clips = () => picosDe((p) => p.veredicto === "bueno" || p.clip);
+const perfilDe = (nombre) => S.perfiles.find((x) => x.nombre.toLowerCase() === (nombre || "").toLowerCase());
+
+function pintarTrabajo() {
+  const t = S.trabajos;
+  const cola = t.en_cola.length ? ` · ${t.en_cola.length} en cola` : "";
+  const disco = S.disco_libre_gb < 2
+    ? `<span style="color:var(--mal)">⚠ ${S.disco_libre_gb} GB libres</span>`
+    : `<span>${S.disco_libre_gb} GB libres</span>`;
+  poner($("#estado-trabajo"),
+    `<span><i class="punto ${t.actual ? "activo" : ""}"></i>${esc(t.actual || "sin trabajos")}${cola}</span>${disco}`);
+  const n = { tablero: 0, revision: colaRevision().length, clips: clips().filter((c) => c.p.clip).length, streamers: 0 };
+  poner($("#pestanas"), [["tablero", "Tablero"], ["revision", "Revisión"], ["clips", "Clips"], ["streamers", "Streamers"]]
+    .map(([k, l]) => `<button data-pestana="${k}" class="${k === pestana ? "activa" : ""}">${l}${n[k] ? `<span class="cuenta">${n[k]}</span>` : ""}</button>`).join(""));
+}
+function pintar() {
+  const m = $("#vista");
+  if (pestana !== "revision") claveReproductor = "";
+  ({ tablero: vistaTablero, revision: vistaRevision, clips: vistaClips, streamers: vistaStreamers }[pestana])(m);
+}
+
+// ---------- tablero
+function tablaMedidas(titulo, filas) {
+  const cuerpo = filas.filter(([, m]) => m.total).map(([n, m]) =>
+    `<tr><td>${esc(n)}</td><td class="num">${m.revisados}/${m.total}</td><td class="num">${m.buenos}</td>
+     <td class="num">${m.dudosos}</td><td class="num">${m.malos}</td><td class="num"><b>${pct(m.precision)}</b></td></tr>`).join("");
+  return `<div class="tarjeta"><b class="chica">${titulo}</b><div class="desborde"><table>
+    <tr><th></th><th class="num">revisados</th><th class="num">buenos</th><th class="num">dudosos</th><th class="num">malos</th><th class="num">precisión</th></tr>
+    ${cuerpo || '<tr><td colspan="6" class="tenue">Sin datos.</td></tr>'}</table></div></div>`;
+}
+function vistaTablero(m) {
+  const pr = S.precision, top = pr.top_k;
+  const producidos = clips().filter((c) => c.p.clip);
+  const publicados = producidos.filter((c) => Object.keys(c.p.publicado || {}).length).length;
+  const iv = top.intervalo ? `IC 95%: ${pct(top.intervalo[0])} – ${pct(top.intervalo[1])}` : "todavía sin revisar";
+  const avance = top.total ? top.revisados / top.total : 0;
+  const opciones = S.perfiles.map((p) => `<option>${esc(p.nombre)}</option>`).join("");
+  const filas = S.vods.map((v) => {
+    const cp = v.picos.filter((p) => p.puesto > 0), rev = cp.filter((p) => p.veredicto).length;
+    const buenos = cp.filter((p) => p.veredicto === "bueno").length;
+    return `<tr>
+      <td><b>${esc(v.streamer || "—")}</b><div class="tenue chica">${esc(v.plataforma)}</div></td>
+      <td><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.titulo || v.url.replace("https://www.", ""))}</a>
+        ${v.error ? `<div class="chica" style="color:var(--mal)">${esc(v.error)}</div>` : ""}</td>
+      <td><span class="sello ${esc(v.estado)}">${esc(v.estado)}</span></td>
+      <td class="num">${horas(v.duracion)}</td><td class="num">${v.mensajes ? v.mensajes.toLocaleString("es") : "—"}</td>
+      <td class="num">${cp.length || "—"}</td><td class="num">${cp.length ? rev + "/" + cp.length : "—"}</td>
+      <td class="num">${rev ? buenos : "—"}</td>
+      <td><button class="chico" data-analizar="${esc(v.id)}">${v.estado === "analizado" ? "Reanalizar" : "Analizar"}</button></td></tr>`;
+  }).join("");
+  m.innerHTML = `
+    <div class="cifras">
+      <div class="tarjeta cifra"><div class="n">${pct(top.precision)}</div><div class="l">Precisión en el top ${pr.k}</div>
+        <div class="s">${top.buenos} buenos de ${top.revisados} revisados · ${iv}</div></div>
+      <div class="tarjeta cifra"><div class="n">${top.revisados}<span class="tenue" style="font-size:16px"> / ${top.total}</span></div>
+        <div class="l">Picos del top ${pr.k} revisados</div><div class="barra"><i style="width:${avance * 100}%"></i></div></div>
+      <div class="tarjeta cifra"><div class="n">${S.vods.filter((v) => v.estado === "analizado").length}<span class="tenue" style="font-size:16px"> / ${S.vods.length}</span></div>
+        <div class="l">VODs analizados</div><div class="s">${pr.vods_sin_nada} sin ningún clip bueno</div></div>
+      <div class="tarjeta cifra"><div class="n">${producidos.length}</div><div class="l">Clips producidos</div>
+        <div class="s">${publicados} publicados</div></div>
+    </div>
+
+    <h2>Sumar VODs</h2>
+    <div class="tarjeta">
+      <form class="linea" id="f-vod">
+        <input type="url" name="url" placeholder="URL del VOD de Twitch o YouTube" required aria-label="URL del VOD">
+        <select name="streamer" aria-label="Streamer"><option value="">(sin perfil)</option>${opciones}</select>
+        <button class="principal">Agregar y analizar</button>
+      </form>
+      <form class="linea" id="f-descubrir" style="margin-top:10px">
+        <span class="tenue chica">o traer los últimos</span>
+        <input type="number" name="limite" value="3" min="1" max="10" style="width:64px" aria-label="Cantidad">
+        <span class="tenue chica">VODs de</span>
+        <select name="streamer" required aria-label="Streamer">${opciones}</select>
+        <button>Buscar en su canal</button>
+      </form>
+    </div>
+
+    <h2>Cola de VODs</h2>
+    <div class="tarjeta desborde"><table>
+      <tr><th>Streamer</th><th>VOD</th><th>Estado</th><th class="num">Duración</th><th class="num">Mensajes</th>
+          <th class="num">Picos</th><th class="num">Revisados</th><th class="num">Buenos</th><th></th></tr>
+      ${filas || '<tr><td colspan="9" class="tenue">Todavía no hay VODs. Agregá uno arriba.</td></tr>'}
+    </table></div>
+
+    <h2>Dónde acierta</h2>
+    <div class="rejilla" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
+      ${tablaMedidas("Por puesto en el ranking", Object.entries(pr.por_puesto).map(([k, v]) => ["#" + k, v]))}
+      ${tablaMedidas("Por prioridad", pr.por_prioridad.map((t) => [t.tramo, t]))}
+      ${tablaMedidas("Por foco", pr.por_foco.map((t) => [t.tramo, t]))}
+      ${tablaMedidas("Por tipo de momento", Object.entries(pr.por_etiqueta))}
+      ${tablaMedidas("Por streamer (top " + pr.k + ")", Object.entries(pr.por_streamer))}
+      ${tablaMedidas("Por plataforma (top " + pr.k + ")", Object.entries(pr.por_plataforma))}
+    </div>
+
+    <h2>Actividad</h2>
+    <div class="tarjeta"><pre id="registro"></pre></div>`;
+}
+
+// ---------- revisión
+function urlReproductor(v, t) {
+  const desde = Math.max(0, Math.floor(t) - 20);   // el chat reacciona tarde: se arranca antes
+  if (v.plataforma === "twitch") {
+    const id = (v.url.match(/videos\/(\d+)/) || [])[1];
+    const hms = `${Math.floor(desde / 3600)}h${Math.floor(desde % 3600 / 60)}m${desde % 60}s`;
+    return { embed: `https://player.twitch.tv/?video=${id}&parent=${location.hostname}&time=${hms}&autoplay=true`,
+             fuera: `${v.url}?t=${hms}` };
+  }
+  const id = new URL(v.url).searchParams.get("v");
+  return { embed: `https://www.youtube.com/embed/${encodeURIComponent(id)}?start=${desde}&autoplay=1`,
+           fuera: `${v.url}&t=${desde}s` };
+}
+function vistaRevision(m) {
+  const cola = colaRevision();
+  if (!cola.length) {
+    claveReproductor = "";
+    m.innerHTML = `<div class="tarjeta"><b>No queda nada por revisar${soloTop ? " en el top 5" : ""}.</b>
+      <p class="tenue">Los picos aparecen acá cuando un VOD termina de analizarse.</p>
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px;color:inherit">
+        <input type="checkbox" id="solo-top" ${soloTop ? "checked" : ""}> Solo el top 5 de cada VOD</label></div>`;
+    return;
+  }
+  const { v, p } = cola[0], clave = v.id + "|" + p.t, u = urlReproductor(v, p.t);
+  // El reproductor se arma una sola vez por pico: si se redibujara con cada
+  // actualización del estado, el video volvería a empezar cada pocos segundos.
+  if (clave !== claveReproductor) {
+    claveReproductor = clave;
+    m.innerHTML = `<div class="revision">
+      <div><iframe class="reproductor" src="${esc(u.embed)}" allow="autoplay; fullscreen; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" title="VOD en el momento del pico"></iframe>
+        <p class="tenue chica">Arranca 20 s antes del pico. Si no carga (algunos canales bloquean el embebido),
+          <a href="${esc(u.fuera)}" target="_blank" rel="noopener">abrilo en la plataforma</a>.</p></div>
+      <div class="tarjeta" id="ficha"></div></div>`;
+  }
+  const perfil = perfilDe(v.streamer);
+  $("#ficha").innerHTML = `
+    <div class="tenue chica">Quedan ${cola.length} · ${esc(v.streamer || "sin perfil")} · ${esc(v.plataforma)}</div>
+    <h2 style="margin:6px 0 2px;font-size:20px">#${p.puesto} · ${esc(p.momento)}</h2>
+    <div class="chica tenue">prioridad <b>${p.prioridad}</b> · score ${p.score} · foco ${p.foco} · ${p.tasa} msg/s</div>
+    <p style="margin:12px 0 4px">${p.etiqueta ? `<span class="sello">${esc(p.etiqueta)}</span>` : ""}
+      ${p.artefacto ? '<span class="sello error">artefacto</span>' : ""}</p>
+    <label>De qué habla el chat</label>
+    <div>${p.tema.map((x) => `<span class="chip">${esc(x)}</span>`).join("") || '<span class="tenue chica">sin tema identificable</span>'}</div>
+    ${p.reaccion.length ? `<label style="margin-top:8px">Cómo reacciona siempre</label>
+      <div>${p.reaccion.map((x) => `<span class="chip reaccion">${esc(x)}</span>`).join("")}</div>` : ""}
+    <label style="margin-top:10px" for="nota">Nota (opcional)</label>
+    <input id="nota" style="width:100%" placeholder="por qué sí o por qué no">
+    <div class="botonera">
+      <button class="bien" data-veredicto="bueno">Bueno<kbd>B</kbd></button>
+      <button class="duda" data-veredicto="dudoso">Dudoso<kbd>D</kbd></button>
+      <button class="mal" data-veredicto="malo">Malo<kbd>M</kbd></button>
+      <button data-veredicto="saltar">Saltar<kbd>S</kbd></button>
+    </div>
+    <div class="botonera"><button class="principal" data-veredicto="producir">Bueno y producir el clip<kbd>P</kbd></button></div>
+    <p class="tenue chica" style="margin-top:12px">«Bueno» = lo publicarías tal cual. «Dudoso» = hay algo, pero necesita que alguien lo rescate.
+      ${perfil ? "" : "<br>Este VOD no tiene perfil: el clip saldría en desenfoque y sin créditos."}</p>
+    <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:inherit;margin-top:8px">
+      <input type="checkbox" id="solo-top" ${soloTop ? "checked" : ""}> Solo el top 5 de cada VOD</label>`;
+  m.dataset.id = v.id; m.dataset.t = p.t;
+}
+async function veredicto(cual) {
+  if (pestana !== "revision" || !colaRevision().length) return;
+  const m = $("#vista"), id = m.dataset.id, t = Number(m.dataset.t);
+  if (cual === "saltar") { saltados.add(id + t); pintarTrabajo(); pintar(); return; }
+  const producir = cual === "producir";
+  await post("/api/veredicto", { id, t, veredicto: producir ? "bueno" : cual, nota: $("#nota")?.value || "", producir });
+  if (producir) toast("Clip en cola: va a aparecer en la pestaña Clips");
+}
+
+// ---------- clips
+function vistaClips(m) {
+  const lista = clips();
+  if (!lista.length) {
+    m.innerHTML = `<div class="tarjeta"><b>Todavía no hay clips.</b>
+      <p class="tenue">Marcá picos como buenos en Revisión y aparecen acá para producirlos y publicarlos.</p></div>`;
+    return;
+  }
+  m.innerHTML = lista.map(({ v, p }) => {
+    const pub = p.publicacion, perfil = perfilDe(v.streamer);
+    const permiso = perfil ? perfil.permiso : "sin pedir";
+    const aviso = permiso === "concedido" ? "" :
+      `<div class="aviso">Permiso de ${esc(v.streamer || "este streamer")}: <b>${esc(permiso)}</b>. Conviene tenerlo antes de publicar.</div>`;
+    if (!p.clip) {
+      const enCola = (S.trabajos.actual + S.trabajos.en_cola.join()).includes(`${v.id.slice(-12)} @ ${Math.floor(p.t)}s`);
+      return `<div class="tarjeta clip"><div class="hueco">Sin producir</div><div>
+        <b>${esc(v.streamer || "—")} · ${esc(p.momento)}</b>
+        <div class="chica tenue">#${p.puesto} · prioridad ${p.prioridad} · ${esc(p.etiqueta || "sin tipo")}</div>
+        <p>${p.tema.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</p>
+        ${enCola ? '<span class="tenue">Produciendo…</span>'
+                 : `<button class="principal" data-producir="${esc(v.id)}" data-t="${p.t}">Producir clip</button>`}
+        ${p.nota ? `<p class="chica tenue">Nota: ${esc(p.nota)}</p>` : ""}</div></div>`;
+    }
+    const src = "/clips/" + p.clip.split("/").map(encodeURIComponent).join("/");
+    const plats = Object.entries(pub.plataformas).map(([k, d]) => {
+      const hecho = (p.publicado || {})[k];
+      const problemas = d.problemas.length ? `<span class="sello error" title="${esc(d.problemas.join("; "))}">no entra</span>` : "";
+      return `<div class="fila-plat" data-id="${esc(v.id)}" data-t="${p.t}" data-plat="${k}">
+        <span class="nombre">${esc(d.nombre)}${hecho ? " ✓" : ""}</span>
+        <span class="tenue chica" style="width:104px">${esc((d.cuando || "").replace("T", " "))}</span>${problemas}
+        ${k === "x" ? "" : `<button class="chico" data-copiar="${esc(d.titulo)}">Copiar título</button>`}
+        <button class="chico" data-copiar="${esc(d.descripcion)}">Copiar texto</button>
+        <a class="boton chico" href="${esc(S.plataformas[k].subida)}" target="_blank" rel="noopener">Abrir subida ↗</a>
+        <input class="url" placeholder="URL del post publicado" value="${esc(hecho?.url || "")}" aria-label="URL del post en ${esc(d.nombre)}">
+        <input class="vistas" type="number" min="0" placeholder="vistas" value="${esc(hecho?.vistas ?? "")}" aria-label="Vistas en ${esc(d.nombre)}">
+        <button class="chico" data-publicado>${hecho ? "Actualizar" : "Marcar publicado"}</button></div>`;
+    }).join("");
+    return `<div class="tarjeta clip">
+      <div><video src="${esc(src)}" controls preload="metadata"></video>
+        <a class="boton chico" style="margin-top:6px" href="${esc(src)}" download>Descargar clip</a></div>
+      <div>${aviso}
+        <b style="font-size:16px">${esc(pub.titulo)}</b>
+        <div class="chica tenue">${esc(v.streamer || "—")} · ${esc(p.momento)} · ${Math.round(pub.medidas.segundos)} s · ${pub.medidas.mb.toFixed(1)} MB
+          · variante ${esc(pub.variante || "—")}${pub.gancho ? " · gancho «" + esc(pub.gancho) + "»" : ""}</div>
+        ${pub.cita ? `<p class="chica">«${esc(pub.cita)}»</p>` : ""}
+        ${plats}</div></div>`;
+  }).join("");
+}
+
+// ---------- streamers
+function vistaStreamers(m) {
+  const filas = S.perfiles.map((p) => `<tr>
+    <td><b>${esc(p.nombre)}</b>${p.juego ? `<div class="tenue chica">${esc(p.juego)}</div>` : ""}</td>
+    <td class="chica">${p.canales.map((c) => `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c.replace(/^https:\/\/(www\.)?/, ""))}</a>`).join("<br>") || "—"}</td>
+    <td>${esc(p.formato_efectivo)}${p.formato !== p.formato_efectivo ? '<div class="tenue chica">falta la facecam para «dividido»</div>' : ""}</td>
+    <td class="chica">${p.facecam ? esc(p.facecam.join(",")) : "—"}</td>
+    <td><span class="sello ${esc(p.permiso)}">${esc(p.permiso)}</span></td>
+    <td class="chica tenue">${esc(p.notas)}</td>
+    <td><button class="chico" data-editar="${esc(p.nombre)}">Editar</button></td></tr>`).join("");
+  const op = (lista) => lista.map((x) => `<option>${esc(x)}</option>`).join("");
+  m.innerHTML = `
+    <div class="tarjeta desborde"><table>
+      <tr><th>Streamer</th><th>Canales</th><th>Formato</th><th>Facecam</th><th>Permiso</th><th>Notas</th><th></th></tr>
+      ${filas || '<tr><td colspan="7" class="tenue">Sin perfiles todavía.</td></tr>'}</table></div>
+    <h2>Agregar o editar un perfil</h2>
+    <form class="tarjeta rejilla" id="f-perfil">
+      <div><label for="p-nombre">Nombre</label><input id="p-nombre" name="nombre" required style="width:100%"></div>
+      <div><label for="p-juego">Juego o tema (para hashtags)</label><input id="p-juego" name="juego" style="width:100%"></div>
+      <div><label for="p-formato">Formato vertical</label><select id="p-formato" name="formato" style="width:100%">${op(S.opciones.formatos)}</select></div>
+      <div><label for="p-facecam">Facecam: X,Y,ANCHO,ALTO</label><input id="p-facecam" name="facecam" placeholder="4,268,320,188" style="width:100%"></div>
+      <div><label for="p-idioma">Idioma (vacío = detectar)</label><input id="p-idioma" name="idioma" placeholder="es" style="width:100%"></div>
+      <div><label for="p-permiso">Permiso para publicar clips</label><select id="p-permiso" name="permiso" style="width:100%">${op(S.opciones.permisos)}</select></div>
+      <div class="todo"><label for="p-canales">Canales donde salen sus VODs (uno por línea)</label>
+        <textarea id="p-canales" name="canales" rows="2" style="width:100%" placeholder="https://www.twitch.tv/CANAL/videos?filter=archives"></textarea></div>
+      <div class="todo"><label for="p-notas">Notas</label><input id="p-notas" name="notas" style="width:100%"></div>
+      <div class="todo"><button class="principal">Guardar perfil</button>
+        <span class="tenue chica" style="margin-left:8px">Guardar con un nombre que ya existe lo reemplaza.</span></div>
+    </form>`;
+}
+
+// ---------- eventos
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button, a.boton"); if (!b) return;
+  if (b.dataset.pestana) { pestana = b.dataset.pestana; localStorage.setItem("pestana", pestana); pintarTrabajo(); pintar(); return; }
+  if (b.dataset.veredicto) return veredicto(b.dataset.veredicto);
+  if (b.dataset.analizar) { if (await post("/api/analizar", { id: b.dataset.analizar })) toast("Análisis en cola"); return; }
+  if (b.dataset.producir) { if (await post("/api/producir", { id: b.dataset.producir, t: Number(b.dataset.t) })) toast("Clip en cola"); return; }
+  if (b.dataset.copiar !== undefined) {
+    try { await navigator.clipboard.writeText(b.dataset.copiar); toast("Copiado"); }
+    catch { toast("El navegador no dejó copiar"); }
+    return;
+  }
+  if (b.dataset.publicado !== undefined) {
+    const f = b.closest(".fila-plat");
+    if (await post("/api/publicado", { id: f.dataset.id, t: Number(f.dataset.t), plataforma: f.dataset.plat,
+      url: $(".url", f).value, vistas: $(".vistas", f).value })) toast("Guardado");
+    return;
+  }
+  if (b.dataset.editar) {
+    const p = perfilDe(b.dataset.editar), f = $("#f-perfil");
+    for (const k of ["nombre", "juego", "formato", "idioma", "permiso", "notas"]) f.elements[k].value = p[k] || "";
+    f.elements.facecam.value = p.facecam ? p.facecam.join(",") : "";
+    f.elements.canales.value = p.canales.join("\n");
+    f.scrollIntoView({ behavior: "smooth" }); f.elements.nombre.focus();
+  }
+});
+document.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, d = Object.fromEntries(new FormData(f));
+  const ruta = { "f-vod": "/api/vods", "f-descubrir": "/api/descubrir", "f-perfil": "/api/perfiles" }[f.id];
+  document.activeElement?.blur();
+  if (ruta && await post(ruta, d)) {
+    toast({ "f-vod": "VOD en cola", "f-descubrir": "Buscando VODs…", "f-perfil": "Perfil guardado" }[f.id]);
+    if (f.id !== "f-perfil") f.reset();
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.id === "solo-top") { soloTop = e.target.checked; claveReproductor = ""; pintarTrabajo(); pintar(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (pestana !== "revision" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  const cual = { b: "bueno", d: "dudoso", m: "malo", s: "saltar", p: "producir" }[e.key.toLowerCase()];
+  if (cual) { e.preventDefault(); veredicto(cual); }
+});
+
+refrescar(true);
+setInterval(refrescar, 2500);
+</script>
+</body>
+</html>

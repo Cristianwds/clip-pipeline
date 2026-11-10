@@ -11,10 +11,13 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 81 tests, corren en ~1,5 s
+.venv/bin/python -m pytest tests/ -q          # 139 tests, corren en ~1,5 s
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
+
+Para varios VODs: `python -m clips.lote` (cola) y `python -m clips.panel` (panel web en
+http://localhost:8765; también está como `panel` en `.claude/launch.json`).
 
 Binarios del sistema, no son dependencias pip: `ffmpeg`, `ffprobe`, `yt-dlp` y
 `TwitchDownloaderCLI` (este último en `~/.local/opt/twitchdownloader/`, ver README).
@@ -38,7 +41,12 @@ de que la lógica está mezclada con la E/S y conviene separarla.
 | `metadatos.py` | Título, gancho, cita y hashtags desde el chat + el audio | Cómo se arman los textos del post |
 | `publicar.py` | Valida cada clip por plataforma (TikTok, Reels, Shorts, X), escribe el manifiesto y un .txt por plataforma listo para pegar | Límites de plataforma, horarios, payload de Postiz |
 | `cuentas.py` | Registro de cuentas y estado de monetización. CLI propia | Agregar una plataforma, actualizar qué paga cada una |
-| `cli.py` | Orquesta todo. No tiene lógica propia | El orden de las etapas, flags nuevos |
+| `pipeline.py` | Del pico al clip terminado: corte, reencuadre, subtítulos. Un pico a la vez | El orden de las etapas, qué pasa cuando una falla |
+| `perfiles.py` | Perfil por streamer: canales, facecam, formato, permiso. CLI propia | Agregar un dato que es constante por streamer |
+| `lote.py` | La cola de VODs y su estado (`datos/lote.json`): picos, veredictos, clips, publicaciones. CLI propia | Qué se recuerda de cada VOD, cómo se descubren VODs nuevos |
+| `revision.py` | Precisión del detector contra los veredictos. Solo funciones puras | Qué cuenta como acierto, por qué cortes se abre la medición |
+| `panel.py` + `panel.html` | Panel web local, con la biblioteca estándar. El HTML es un solo archivo sin build | Rutas, pestañas, qué se muestra |
+| `cli.py` | Un VOD desde la terminal. No tiene lógica propia | Flags nuevos, lo que se imprime |
 
 ### Grafo de dependencias
 
@@ -47,8 +55,10 @@ texto ──┬── vocabulario ── picos ──┬── cortar
         ├── subtitulos             └── publicar ── metadatos
         └── metadatos
 chat ───┴── vocabulario, picos
-estilos, reencuadre, cuentas: sin dependencias internas
-cli: usa todos, no lo usa nadie
+estilos, reencuadre, cuentas, perfiles, revision: sin dependencias internas
+pipeline: cortar, reencuadre, subtitulos, estilos, metadatos
+lote: chat, picos, perfiles, revision, pipeline, publicar
+cli y panel: arriba de todo, no los usa nadie (panel usa lote, perfiles, revision)
 ```
 
 `texto.py` es hoja y no importa nada del proyecto. Si dos módulos necesitan lo mismo,
@@ -88,6 +98,26 @@ módulo y en la nota del vault.
   sin hacer ninguna llamada. El usuario decidió publicar a mano en las cuatro
   plataformas; automatizar el envío quedó pendiente de decisión.
 
+- **Se produce de a un pico** (`pipeline.producir`). La versión por etapas emparejaba
+  clips y picos con `zip`: si un corte fallaba, el clip siguiente salía con el título y
+  el gancho del pico anterior.
+- **La E/S del lote no toca el estado** (`lote.py`). `analizar_url` y `producir_pico`
+  devuelven un resultado y una función pura lo aplica. Es lo que permite testear sin red
+  y que el panel no tenga el estado tomado durante un análisis de varios minutos.
+- **Reanalizar conserva los veredictos** (`lote.fusionar_picos`). Son el único dato del
+  proyecto que no se regenera: cuestan un humano mirando el video.
+- **«Dudoso» cuenta como error y la precisión va con intervalo de Wilson**
+  (`revision.py`). Con 50 veredictos como mucho, un porcentaje suelto invita a creerle
+  de más.
+- **La revisión mira el VOD embebido, no un clip cortado** (`panel.html`). Validar 50
+  picos cortando 50 clips costaba disco y tiempo; embebido cuesta cero y solo se corta
+  lo aprobado.
+- **El panel es biblioteca estándar, sin framework** (`panel.py`). Una docena de rutas;
+  lo único que faltaba era servir video con `Range`. Escucha solo en 127.0.0.1 y
+  rechaza POST de otro origen, porque lanza descargas y escribe en disco.
+- **El panel tampoco publica.** Copiar texto, bajar el archivo, abrir la subida y anotar
+  la URL. Misma decisión que `publicar.py`.
+
 ## Trampas conocidas
 
 - **`yt-dlp` puede terminar en 0 y no dejar el archivo que pediste.** Elige el contenedor
@@ -99,6 +129,14 @@ módulo y en la nota del vault.
   plataformas). No volver a agregarlo.
 - **faster-whisper no decodifica bien el audio acá** (incompatibilidad con PyAV). El
   audio se extrae con ffmpeg y se le pasa como array.
+- **El `<iframe>` de YouTube necesita `referrerpolicy`.** Sin mandar el origen, el
+  reproductor embebido queda en negro (error 153). Y Twitch exige `parent=` igual al
+  host: por eso el panel se abre como `localhost`, que es el único host que acepta sin https.
+- **La cabecera del panel no se redibuja si no cambió.** Se actualiza cada 2,5 s;
+  reemplazar un botón entre el mousedown y el mouseup se comía el click.
+- **TwitchDownloaderCLI no escribe nada hasta terminar.** El archivo de salida queda en
+  0 bytes durante toda la descarga: no es señal de que esté colgado. Hay un tope de
+  tiempo en `chat.TIEMPO_MAXIMO`.
 - **El chat escribe mal y el audio no.** `metadatos.consolidar` corrige la ortografía
   cruzando los dos, con un límite: 2 ediciones si el chat escribió la palabra de varias
   formas, 1 sola si fue consistente. Sin ese límite convertía `malas` en `mata`.
@@ -118,7 +156,9 @@ módulo y en la nota del vault.
 ## Estado
 
 Ingesta ✅ · detección ✅ · ranking ✅ · corte ✅ · reencuadre ✅ · subtítulos ✅ ·
-plan de publicación ✅ · publicar ⬜ (decisión pendiente del usuario).
+plan de publicación ✅ · perfiles ✅ · lote ✅ · panel ✅ ·
+**precisión medida ⬜** (faltan los veredictos del usuario en el panel) ·
+publicar ⬜ (decisión pendiente del usuario).
 
 La nota del proyecto, con las capturas y el historial de cada decisión, está en el vault:
 `40_Proyectos/Pipeline de clips/Pipeline de clips.md`.

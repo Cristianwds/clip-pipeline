@@ -17,20 +17,27 @@ def _hms(s: float) -> str:
 def cortar(
     url: str, picos: list[Pico], antes: float = 8.0, despues: float = 14.0,
     altura_max: int = 720, duraciones: list[tuple[float, float]] | None = None,
+    carpeta: Path | None = None, primero: int = 1,
 ) -> list[Path]:
     """Baja solo el tramo de cada pico usando --download-sections de yt-dlp.
 
     duraciones: (antes, despues) por clip, para que cada variante de formato use su
     propio largo. Si no se pasa, todos usan el default.
+    carpeta: dónde dejar los cortes. En modo lote cada VOD tiene la suya: con todo en
+    salida/ los `pico_01` de dos VODs distintos quedaban mezclados.
+    primero: número del primer clip, para que cortar de a uno conserve el puesto
+    del pico en el nombre.
     """
-    SALIDA.mkdir(parents=True, exist_ok=True)
+    carpeta = carpeta or SALIDA
+    carpeta.mkdir(parents=True, exist_ok=True)
     hechos = []
-    for n, p in enumerate(picos, 1):
-        if duraciones and n <= len(duraciones):
-            antes, despues = duraciones[n - 1]
+    for i, p in enumerate(picos):
+        n = primero + i
+        if duraciones and i < len(duraciones):
+            antes, despues = duraciones[i]
         # el largo va en el nombre: si no, al cambiar de variante se reusaba el
         # corte anterior porque el archivo "ya existia"
-        base = SALIDA / f"pico_{n:02d}_{p.hhmmss()}_{int(antes + despues)}s"
+        base = carpeta / f"pico_{n:02d}_{p.hhmmss()}_{int(antes + despues)}s"
         destino = base.with_suffix(".mp4")
         if destino.exists():
             hechos.append(destino)
@@ -53,7 +60,7 @@ def cortar(
 
         # yt-dlp puede terminar en 0 y aun asi dejar el archivo con otra extension,
         # asi que el exito se decide mirando el disco, no el returncode.
-        producidos = sorted(q for q in SALIDA.glob(base.name + ".*")
+        producidos = sorted(q for q in carpeta.glob(base.name + ".*")
                             if q.suffix.lower() not in (".part", ".ytdl"))
         if not producidos:
             detalle = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or [f"rc={r.returncode}"]
