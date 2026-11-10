@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 141 tests, corren en ~1,5 s
+.venv/bin/python -m pytest tests/ -q          # 144 tests, corren en ~1,5 s
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```

@@ -307,3 +307,35 @@ def test_la_vista_del_panel_trae_la_precision(tmp_path, monkeypatch):
     assert v["precision"]["top_k"]["precision"] == 0.5
     assert v["perfiles"][0]["formato_efectivo"] == "desenfoque"
     assert set(v["plataformas"]) == {"tiktok", "youtube_shorts", "instagram_reels", "x"}
+
+
+def test_el_medidor_de_facecam_no_borra_el_resto_del_perfil():
+    actual = perfiles.Perfil("Ibai", canales=["https://www.twitch.tv/ibai/videos"],
+                             permiso="concedido", juego="LoL", modelo="medium")
+    p = panel.perfil_desde_formulario(
+        {"nombre": "ibai", "facecam": "10,20,300,200", "formato": "dividido"}, actual)
+    assert (p.facecam, p.formato_efectivo) == ([10, 20, 300, 200], "dividido")
+    assert (p.canales, p.permiso, p.juego, p.modelo) == (
+        ["https://www.twitch.tv/ibai/videos"], "concedido", "LoL", "medium")
+
+
+def test_el_formulario_completo_arma_un_perfil_nuevo_y_puede_vaciar_la_facecam():
+    p = panel.perfil_desde_formulario(
+        {"nombre": " Nueva ", "canales": "https://a.tv/x\nhttps://b.tv/y", "facecam": "",
+         "formato": "recorte", "permiso": "pedido"}, None)
+    assert (p.nombre, p.canales, p.facecam, p.permiso) == (
+        "Nueva", ["https://a.tv/x", "https://b.tv/y"], None, "pedido")
+    con_cam = perfiles.Perfil("X", facecam=[1, 2, 3, 4])
+    assert panel.perfil_desde_formulario({"nombre": "X", "facecam": ""}, con_cam).facecam is None
+
+
+def test_el_cuadro_para_medir_se_pide_igual_que_el_clip():
+    # la facecam se mide sobre el cuadro y se aplica sobre el clip: si pidieran
+    # resoluciones distintas, el recorte caería en cualquier lado
+    import inspect
+    from clips import cortar
+    assert cortar._formato(720) == ["-f", "bv*[height<=720]+ba/b[height<=720]",
+                                    "-S", "vcodec:h264,acodec:aac,res"]
+    for fn in (cortar.cortar, cortar.cuadro):
+        assert "_formato(altura_max)" in inspect.getsource(fn)
+        assert inspect.signature(fn).parameters["altura_max"].default == 720

@@ -35,7 +35,7 @@ from collections import deque
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import lote, perfiles as mod_perfiles, revision
 from .cortar import SALIDA
@@ -96,6 +96,29 @@ def origen_local(origen: str | None) -> bool:
     if not origen:
         return True
     return urlparse(origen).hostname in ("localhost", "127.0.0.1", "::1")
+
+
+def perfil_desde_formulario(d: dict, actual: mod_perfiles.Perfil | None) -> mod_perfiles.Perfil:
+    """El perfil que resulta de aplicar los campos enviados sobre el que ya existía.
+
+    Solo se pisan los campos que vinieron. El medidor de facecam manda nada más que
+    nombre, facecam y formato: armando el perfil de cero, ese guardado borraba los
+    canales y el permiso.
+    """
+    base = asdict(actual) if actual else {"nombre": d.get("nombre", "")}
+    for campo in ("nombre", "formato", "juego", "idioma", "permiso", "notas", "modelo"):
+        if campo in d:
+            base[campo] = str(d[campo]).strip()
+    if "canales" in d:
+        crudo = d["canales"]
+        base["canales"] = crudo.split() if isinstance(crudo, str) else list(crudo)
+    if "facecam" in d:
+        crudo = d["facecam"]
+        base["facecam"] = mod_perfiles.parsear_facecam(
+            ",".join(map(str, crudo)) if isinstance(crudo, list) else crudo)
+    if "subtitulos" in d:
+        base["subtitulos"] = bool(d["subtitulos"])
+    return mod_perfiles.desde_dict(base)
 
 
 def vista(estado: dict, perfiles: list[mod_perfiles.Perfil]) -> dict:
@@ -256,15 +279,10 @@ def accion(ruta: str, d: dict) -> dict:
             _vod_o_error(est, d["id"]), float(d["t"]), d["plataforma"], d.get("url", ""), vistas))
         return {}
     if ruta == "/api/perfiles":
-        p = mod_perfiles.Perfil(
-            nombre=d.get("nombre", ""),
-            canales=[c for c in str(d.get("canales", "")).split() if c],
-            facecam=mod_perfiles.parsear_facecam(d.get("facecam")),
-            formato=d.get("formato", "desenfoque"), juego=d.get("juego", ""),
-            idioma=d.get("idioma", ""), subtitulos=bool(d.get("subtitulos", True)),
-            permiso=d.get("permiso", "sin pedir"), notas=d.get("notas", ""))
         with CANDADO:
-            mod_perfiles.guardar(mod_perfiles.poner(mod_perfiles.cargar(), p))
+            todos = mod_perfiles.cargar()
+            p = perfil_desde_formulario(d, mod_perfiles.obtener(d.get("nombre", ""), todos))
+            mod_perfiles.guardar(mod_perfiles.poner(todos, p))
         return {}
     raise LookupError(ruta)
 
@@ -303,8 +321,29 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(datos)
         elif ruta.startswith("/clips/"):
             self._archivo(unquote(ruta[len("/clips/"):]))
+        elif ruta == "/api/cuadro":
+            self._cuadro(parse_qs(urlparse(self.path).query))
         else:
             self._json({"error": "no existe"}, 404)
+
+    def _cuadro(self, q: dict) -> None:
+        """Un cuadro del VOD para medir la facecam. Se guarda: pedir dos veces el
+        mismo segundo no vuelve a ir a la plataforma."""
+        from .cortar import cuadro
+        try:
+            id_vod, t = q["id"][0], int(float(q.get("t", ["1800"])[0]))
+            with CANDADO:
+                vod = _vod_o_error(lote.cargar(), id_vod)
+            destino = SALIDA / vod["id"] / f"cuadro_{t}.jpg"
+            if not destino.exists():
+                cuadro(vod["url"], t, destino)
+        except (KeyError, ValueError) as e:
+            self._json({"error": str(e)}, 400)
+            return
+        except Exception as e:
+            self._json({"error": str(e)}, 502)
+            return
+        self._archivo(f"{vod['id']}/{destino.name}")
 
     def _archivo(self, relativa: str) -> None:
         archivo = ruta_segura(SALIDA, relativa)
@@ -315,7 +354,7 @@ class Manejador(BaseHTTPRequestHandler):
         r = rango(self.headers.get("Range"), tam)
         ini, fin = r if r else (0, tam - 1)
         self.send_response(206 if r else 200)
-        tipo = {"mp4": "video/mp4", "txt": "text/plain; charset=utf-8"}.get(
+        tipo = {"mp4": "video/mp4", "jpg": "image/jpeg", "txt": "text/plain; charset=utf-8"}.get(
             archivo.suffix.lstrip("."), "application/octet-stream")
         self.send_header("Content-Type", tipo)
         self.send_header("Accept-Ranges", "bytes")

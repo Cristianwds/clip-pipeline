@@ -99,6 +99,11 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid currentColor; border
 .fila-plat input.url { flex: 1 1 160px; } .fila-plat input.vistas { width: 90px; }
 .rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
 .rejilla .todo { grid-column: 1 / -1; }
+.lienzo { position: relative; display: inline-block; max-width: 100%; line-height: 0; cursor: crosshair;
+  touch-action: none; user-select: none; border-radius: 8px; overflow: hidden; background: #000; min-height: 120px; min-width: 200px; }
+.lienzo img { max-width: 100%; height: auto; display: block; }
+#marco { position: absolute; border: 2px solid #ffd400; background: rgba(255, 212, 0, .18); display: none; pointer-events: none; }
+code { font: 13px ui-monospace, monospace; background: var(--chip); padding: 2px 6px; border-radius: 6px; }
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--texto);
   color: var(--fondo); padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0;
   transition: opacity .2s; pointer-events: none; max-width: 90vw; }
@@ -120,6 +125,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid currentColor; border
 "use strict";
 let S = null, pestana = localStorage.getItem("pestana") || "tablero";
 let huella = "", claveReproductor = "", soloTop = true;
+let medicion = null;   // { nombre, id, t, caja } mientras se mide una facecam
 const saltados = new Set();
 const $ = (s, r = document) => r.querySelector(s);
 // Todo lo que viene del chat (temas, títulos) es texto de terceros: siempre escapado.
@@ -153,7 +159,8 @@ async function refrescar(forzar) {
   // Si estás escribiendo en un formulario no se redibuja: se perdería lo tipeado.
   const escribiendo = $("#vista").contains(document.activeElement) &&
     /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
-  if (forzar || (h !== huella && !escribiendo)) { huella = h; pintar(); }
+  // Tampoco mientras se mide una facecam: recargaría el cuadro y borraría el rectángulo.
+  if (forzar || (h !== huella && !escribiendo && !medicion)) { huella = h; pintar(); }
   const reg = $("#registro");
   if (reg) { reg.textContent = d.trabajos.registro.join("\n") || "Sin actividad todavía."; reg.scrollTop = reg.scrollHeight; }
 }
@@ -392,12 +399,30 @@ function vistaStreamers(m) {
     <td class="chica">${p.facecam ? esc(p.facecam.join(",")) : "—"}</td>
     <td><span class="sello ${esc(p.permiso)}">${esc(p.permiso)}</span></td>
     <td class="chica tenue">${esc(p.notas)}</td>
-    <td><button class="chico" data-editar="${esc(p.nombre)}">Editar</button></td></tr>`).join("");
+    <td style="white-space:nowrap"><button class="chico" data-editar="${esc(p.nombre)}">Editar</button>
+      <button class="chico" data-medir="${esc(p.nombre)}">Medir facecam</button></td></tr>`).join("");
   const op = (lista) => lista.map((x) => `<option>${esc(x)}</option>`).join("");
   m.innerHTML = `
     <div class="tarjeta desborde"><table>
       <tr><th>Streamer</th><th>Canales</th><th>Formato</th><th>Facecam</th><th>Permiso</th><th>Notas</th><th></th></tr>
       ${filas || '<tr><td colspan="7" class="tenue">Sin perfiles todavía.</td></tr>'}</table></div>
+    ${medicion ? `<h2>Facecam de ${esc(medicion.nombre)}</h2>
+    <div class="tarjeta" id="medidor">
+      <p class="chica tenue" style="margin-top:0">Arrastrá un rectángulo sobre la cámara. Si en este cuadro no se ve, probá otro segundo del VOD.</p>
+      <form class="linea" id="f-cuadro" style="margin-bottom:10px">
+        <label for="m-t" style="margin:0">Segundo del VOD</label>
+        <input id="m-t" name="t" type="number" min="0" value="${medicion.t}" style="width:110px">
+        <button>Ver ese cuadro</button>
+      </form>
+      <div class="lienzo" id="lienzo"><img id="cuadro" alt="Cuadro del VOD para medir la facecam" draggable="false"
+        src="/api/cuadro?id=${encodeURIComponent(medicion.id)}&t=${medicion.t}"><div id="marco"></div></div>
+      <p id="estado-cuadro" class="chica tenue">Trayendo el cuadro desde la plataforma, tarda unos segundos…</p>
+      <div class="botonera" style="align-items:center">
+        <span>Facecam: <code id="medida">${medicion.caja ? medicion.caja.join(",") : "—"}</code></span>
+        <button class="principal" data-guardar-medida ${medicion.caja ? "" : "disabled"}>Guardar y usar formato dividido</button>
+        <button data-cerrar-medida>Cerrar</button>
+      </div>
+    </div>` : ""}
     <h2>Agregar o editar un perfil</h2>
     <form class="tarjeta rejilla" id="f-perfil">
       <div><label for="p-nombre">Nombre</label><input id="p-nombre" name="nombre" required style="width:100%"></div>
@@ -432,6 +457,21 @@ document.addEventListener("click", async (e) => {
       url: $(".url", f).value, vistas: $(".vistas", f).value })) toast("Guardado");
     return;
   }
+  if (b.dataset.medir) {
+    const nombre = b.dataset.medir, p = perfilDe(nombre);
+    const v = S.vods.find((x) => (x.streamer || "").toLowerCase() === nombre.toLowerCase());
+    if (!v) { toast(`Agregá primero un VOD de ${nombre} en el Tablero`); return; }
+    const pico = v.picos.find((x) => x.puesto === 1);
+    medicion = { nombre, id: v.id, t: Math.round(pico ? pico.t : 1800), caja: p.facecam || null };
+    pintar(); $("#medidor").scrollIntoView({ behavior: "smooth" }); return;
+  }
+  if (b.dataset.cerrarMedida !== undefined) { medicion = null; pintar(); return; }
+  if (b.dataset.guardarMedida !== undefined) {
+    const m = medicion; medicion = null;
+    if (await post("/api/perfiles", { nombre: m.nombre, facecam: m.caja.join(","), formato: "dividido" }))
+      toast(`Facecam de ${m.nombre} guardada`);
+    return;
+  }
   if (b.dataset.editar) {
     const p = perfilDe(b.dataset.editar), f = $("#f-perfil");
     for (const k of ["nombre", "juego", "formato", "idioma", "permiso", "notas"]) f.elements[k].value = p[k] || "";
@@ -443,6 +483,7 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target, d = Object.fromEntries(new FormData(f));
+  if (f.id === "f-cuadro") { medicion.t = Math.max(0, Math.round(Number(d.t) || 0)); medicion.caja = null; pintar(); return; }
   const ruta = { "f-vod": "/api/vods", "f-descubrir": "/api/descubrir", "f-perfil": "/api/perfiles" }[f.id];
   document.activeElement?.blur();
   if (ruta && await post(ruta, d)) {
@@ -450,6 +491,52 @@ document.addEventListener("submit", async (e) => {
     if (f.id !== "f-perfil") f.reset();
   }
 });
+// ---------- medidor de facecam
+// La caja se guarda en píxeles del video original, no de la pantalla: la imagen se
+// muestra achicada y lo que necesita el reencuadre son las coordenadas reales.
+function dibujarMarco() {
+  const img = $("#cuadro"), marco = $("#marco"); if (!img || !marco) return;
+  const c = medicion && medicion.caja;
+  if (!c || !img.naturalWidth) { marco.style.display = "none"; return; }
+  const k = img.clientWidth / img.naturalWidth;
+  Object.assign(marco.style, { display: "block", left: c[0] * k + "px", top: c[1] * k + "px",
+    width: c[2] * k + "px", height: c[3] * k + "px" });
+}
+function cajaDesde(img, x0, y0, x1, y1) {
+  const r = img.getBoundingClientRect(), k = img.naturalWidth / r.width;
+  const lim = (v, max) => Math.min(Math.max(v, 0), max);
+  const ax = lim(Math.min(x0, x1) - r.left, r.width), bx = lim(Math.max(x0, x1) - r.left, r.width);
+  const ay = lim(Math.min(y0, y1) - r.top, r.height), by = lim(Math.max(y0, y1) - r.top, r.height);
+  return [Math.round(ax * k), Math.round(ay * k), Math.round((bx - ax) * k), Math.round((by - ay) * k)];
+}
+let arrastre = null;
+document.addEventListener("pointerdown", (e) => {
+  const l = e.target.closest("#lienzo"), img = $("#cuadro");
+  if (!l || !img.naturalWidth) return;
+  e.preventDefault(); l.setPointerCapture(e.pointerId); arrastre = { x: e.clientX, y: e.clientY };
+});
+document.addEventListener("pointermove", (e) => {
+  if (!arrastre || !medicion) return;
+  medicion.caja = cajaDesde($("#cuadro"), arrastre.x, arrastre.y, e.clientX, e.clientY);
+  dibujarMarco(); $("#medida").textContent = medicion.caja.join(",");
+});
+document.addEventListener("pointerup", () => {
+  if (!arrastre || !medicion) return;
+  arrastre = null;
+  // un click sin arrastrar deja una caja de ancho cero, que no es una facecam
+  if (medicion.caja && (medicion.caja[2] < 8 || medicion.caja[3] < 8)) { medicion.caja = null; $("#medida").textContent = "—"; dibujarMarco(); }
+  $("[data-guardar-medida]").disabled = !medicion.caja;
+});
+document.addEventListener("load", (e) => {
+  if (e.target.id !== "cuadro") return;
+  $("#estado-cuadro").textContent = `Cuadro de ${e.target.naturalWidth}×${e.target.naturalHeight} px, la resolución a la que se cortan los clips.`;
+  dibujarMarco();
+}, true);
+document.addEventListener("error", (e) => {
+  if (e.target.id === "cuadro") $("#estado-cuadro").textContent = "No se pudo traer ese cuadro. Probá otro segundo, o fijate que el VOD siga disponible.";
+}, true);
+window.addEventListener("resize", dibujarMarco);
+
 document.addEventListener("change", (e) => {
   if (e.target.id === "solo-top") { soloTop = e.target.checked; claveReproductor = ""; pintarTrabajo(); pintar(); }
 });
