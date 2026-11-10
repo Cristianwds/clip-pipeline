@@ -84,9 +84,12 @@ El detector necesita chat. Medido con VODs de canales medianos:
 
 | Chat | Qué sale |
 | :--- | :--- |
-| más de ~0,8 msg/s | Lo mismo que con los canales grandes: varios picos por VOD |
-| 0,4 a 0,8 msg/s | 3 a 5 picos por VOD, usando una ventana más ancha |
+| 0,4 msg/s o más | 3 a 8 picos por VOD (con ventana más ancha por debajo de 0,8) |
+| 0,2 a 0,4 msg/s | 0 a 2 picos, casi siempre flojos |
 | menos de 0,2 msg/s | 0 o 1 pico: no alcanza la señal |
+
+De 24 canales hispanohablantes de 360 a 930 espectadores promedio, solo 3 superaron
+0,4 msg/s.
 
 Para chats de menos de 0,8 msg/s la ventana se ensancha sola (de 5 s hasta 30 s) para
 juntar unos 4 mensajes por bin; el umbral no cambia. **Los espectadores promedio no
