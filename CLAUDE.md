@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 170 tests, corren en unos segundos
+.venv/bin/python -m pytest tests/ -q          # 196 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -41,6 +41,7 @@ de que la lógica está mezclada con la E/S y conviene separarla.
 | `metadatos.py` | Título, gancho, cita y hashtags desde el chat + el audio | Cómo se arman los textos del post |
 | `publicar.py` | Valida cada clip por plataforma (TikTok, Reels, Shorts, X), escribe el manifiesto y un .txt por plataforma listo para pegar | Límites de plataforma, horarios, payload de Postiz |
 | `cuentas.py` | Registro de cuentas y estado de monetización. CLI propia | Agregar una plataforma, actualizar qué paga cada una |
+| `entrega.py` | El paquete para el streamer: una carpeta y un zip por directo con los clips que pasaron el control, el texto de cada uno y un LEEME. No manda nada | Qué entra en el paquete, cómo se llaman los archivos, qué dice el LEEME |
 | `pipeline.py` | Del pico al clip terminado: corte, reencuadre, subtítulos. Un pico a la vez. Se testea reemplazando las tres etapas (`tests/test_pipeline.py`) | El orden de las etapas, qué pasa cuando una falla |
 | `perfiles.py` | Perfil por streamer: canales, facecam, formato, permiso. CLI propia | Agregar un dato que es constante por streamer |
 | `lote.py` | La cola de VODs y su estado (`datos/lote.json`): picos, veredictos, clips, publicaciones. CLI propia | Qué se recuerda de cada VOD, cómo se descubren VODs nuevos |
@@ -56,9 +57,11 @@ texto ──┬── vocabulario ── picos ──┬── cortar
         └── metadatos
 chat ───┴── vocabulario, picos
 estilos, reencuadre, cuentas, perfiles, revision: sin dependencias internas
+entrega: texto (trabaja sobre los dicts del estado, no importa lote)
 pipeline: cortar, reencuadre, subtitulos, estilos, metadatos
 lote: chat, picos, perfiles, revision, pipeline, publicar
-cli y panel: arriba de todo, no los usa nadie (panel usa lote, perfiles, revision)
+cli y panel: arriba de todo, no los usa nadie (panel usa lote, perfiles, revision,
+entrega, estilos)
 ```
 
 `texto.py` es hoja y no importa nada del proyecto. Si dos módulos necesitan lo mismo,
@@ -122,6 +125,16 @@ módulo y en la nota del vault.
 - **Sin permiso concedido no se registra una publicación** (`lote.exigir_permiso`).
   Producir sí se puede: los clips hechos son lo que se manda para pedir el permiso.
   El chequeo está en la acción del panel, no solo en el botón.
+- **Hay dos veredictos y no se mezclan** (`lote.poner_control`). El del pico se pone
+  mirando el VOD embebido, antes de producir, y dice que el momento vale. El control
+  se pone sobre el clip terminado. Rehacer un clip le saca el visto bueno: era de otro
+  archivo. Solo los clips con control «ok» entran en una entrega.
+- **El corrimiento al rehacer no cambia el `t` del pico** (`lote.producir_pico`). El
+  `t` es la identidad del pico en el estado; el corrimiento se aplica a la copia que se
+  produce y queda anotado en `ajuste`.
+- **La entrega es por directo y sí se arma sin permiso concedido** (`entrega.armar`).
+  Los clips hechos son lo que se manda para pedirlo; el LEEME lo presenta como muestra.
+  Solo «negado» la frena. Registrar una publicación sigue exigiendo «concedido».
 - **«Dudoso» cuenta como error y la precisión va con intervalo de Wilson**
   (`revision.py`). Con 50 veredictos como mucho, un porcentaje suelto invita a creerle
   de más.
@@ -179,7 +192,8 @@ módulo y en la nota del vault.
 ## Estado
 
 Ingesta ✅ · detección ✅ · ranking ✅ · corte ✅ · reencuadre ✅ · subtítulos ✅ ·
-plan de publicación ✅ · perfiles ✅ · lote ✅ · panel ✅ ·
+plan de publicación ✅ · perfiles ✅ · lote ✅ · panel ✅ · control del clip ✅ ·
+entrega ✅ (sin probar todavía con un clip real) ·
 **precisión medida ⬜** (faltan los veredictos del usuario en el panel) ·
 publicar ⬜ (decisión pendiente del usuario).
 

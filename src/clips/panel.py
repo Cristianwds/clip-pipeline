@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import lote, perfiles as mod_perfiles, revision
+from . import entrega, estilos, lote, perfiles as mod_perfiles, revision
 from .cortar import SALIDA
 from .publicar import PLATAFORMAS
 
@@ -130,7 +130,9 @@ def vista(estado: dict, perfiles: list[mod_perfiles.Perfil]) -> dict:
         "precision": revision.resumen(lote.filas(estado)),
         "plataformas": {k: {"nombre": p.nombre, "subida": SUBIDA.get(k, "")}
                         for k, p in PLATAFORMAS.items()},
-        "opciones": {"formatos": mod_perfiles.FORMATOS, "permisos": mod_perfiles.PERMISOS},
+        "opciones": {"formatos": mod_perfiles.FORMATOS, "permisos": mod_perfiles.PERMISOS,
+                     "variantes": [v.nombre for v in estilos.VARIANTES],
+                     "corrimiento_maximo": lote.CORRIMIENTO_MAXIMO},
         "disco_libre_gb": round(libre / 1e9, 1),
     }
 
@@ -225,7 +227,7 @@ def trabajo_descubrir(nombre: str, limite: int) -> None:
                                  lambda i=vod["id"]: trabajo_analizar(i))
 
 
-def trabajo_producir(id_vod: str, t: float) -> None:
+def trabajo_producir(id_vod: str, t: float, variante: str = "", corrimiento: float = 0.0) -> None:
     with CANDADO:
         estado = lote.cargar()
         vod = _vod_o_error(estado, id_vod)
@@ -234,10 +236,20 @@ def trabajo_producir(id_vod: str, t: float) -> None:
             raise ValueError("ese pico no existe")
         desde = lote.proxima_fecha(estado)
     resultado = lote.producir_pico(vod, pico, mod_perfiles.obtener(vod.get("streamer", "")),
-                                   desde=desde)
+                                   desde=desde, variante=variante, corrimiento=corrimiento)
     for aviso in resultado["avisos"]:
         print(f"  aviso: {aviso}")
     mutar(lambda est: lote.aplicar_clip(lote.buscar_pico(_vod_o_error(est, id_vod), t), resultado))
+
+
+def trabajo_entregar(id_vod: str) -> None:
+    with CANDADO:
+        vod = _vod_o_error(lote.cargar(), id_vod)
+    perfil = mod_perfiles.obtener(vod.get("streamer", ""))
+    r = entrega.armar(vod, SALIDA, permiso=perfil.permiso if perfil else "")
+    marcados = mutar(lambda est: lote.marcar_entregado(
+        _vod_o_error(est, id_vod), r["tiempos"], r["paquete"]))
+    print(f"  {len(marcados)} clips en {r['paquete']}")
 
 
 # ---------------------------------------------------------------- acciones (POST)
@@ -269,6 +281,27 @@ def accion(ruta: str, d: dict) -> dict:
         mutar(lambda est: _vod_o_error(est, d["id"]))
         TRABAJOS.encolar(f"Producir clip {d['id'][-12:]} @ {int(float(d['t']))}s",
                          lambda: trabajo_producir(d["id"], float(d["t"])))
+        return {}
+    if ruta == "/api/control":
+        mutar(lambda est: lote.poner_control(
+            _vod_o_error(est, d["id"]), float(d["t"]), d.get("control", ""), d.get("nota")))
+        return {}
+    if ruta == "/api/rehacer":
+        # se valida acá y no en el trabajo: un valor mal puesto tiene que volver como
+        # error del formulario, no aparecer tres minutos después en el registro
+        variante, corrimiento = lote.validar_ajuste(
+            d.get("variante"), float(d.get("corrimiento") or 0))
+        mutar(lambda est: lote.poner_control(
+            _vod_o_error(est, d["id"]), float(d["t"]), "rehacer", d.get("nota")))
+        TRABAJOS.encolar(f"Producir clip {d['id'][-12:]} @ {int(float(d['t']))}s",
+                         lambda: trabajo_producir(d["id"], float(d["t"]), variante, corrimiento))
+        return {}
+    if ruta == "/api/entregar":
+        with CANDADO:
+            vod = _vod_o_error(lote.cargar(), d["id"])
+        if not entrega.seleccionar(vod):
+            raise ValueError("no hay clips con el visto bueno sin entregar en este directo")
+        TRABAJOS.encolar(f"Armar entrega {d['id'][-12:]}", lambda: trabajo_entregar(d["id"]))
         return {}
     if ruta == "/api/publicado":
         if d.get("plataforma") not in PLATAFORMAS:
@@ -361,7 +394,8 @@ class Manejador(BaseHTTPRequestHandler):
         r = rango(self.headers.get("Range"), tam)
         ini, fin = r if r else (0, tam - 1)
         self.send_response(206 if r else 200)
-        tipo = {"mp4": "video/mp4", "jpg": "image/jpeg", "txt": "text/plain; charset=utf-8"}.get(
+        tipo = {"mp4": "video/mp4", "jpg": "image/jpeg", "txt": "text/plain; charset=utf-8",
+                "zip": "application/zip"}.get(
             archivo.suffix.lstrip("."), "application/octet-stream")
         self.send_header("Content-Type", tipo)
         self.send_header("Accept-Ranges", "bytes")

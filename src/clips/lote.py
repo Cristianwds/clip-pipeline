@@ -40,6 +40,10 @@ RESPALDOS = Path(os.environ.get(
 RESPALDOS_DIARIOS = 14   # cuántos días de copias se conservan
 TOP = 10                 # picos que se guardan por VOD
 DURACION_MINIMA = 1200   # un "VOD" de menos de 20 min es un clip o un resubido
+CONTROLES = ("ok", "rehacer")
+# Cuánto se puede correr el inicio de un clip al rehacerlo. Más que esto ya no es
+# ajustar el corte: es otro momento, y le corresponde otro pico.
+CORRIMIENTO_MAXIMO = 15.0
 
 
 # ---------------------------------------------------------------- URLs
@@ -220,6 +224,7 @@ def pico_a_dict(p: Pico, puesto: int) -> dict:
         "prioridad": round(p.prioridad, 2), "tema": p.tema, "reaccion": p.reaccion,
         "etiqueta": p.etiqueta, "artefacto": p.es_artefacto,
         "veredicto": "", "nota": "", "clip": "", "publicacion": None, "publicado": {},
+        "control": "", "nota_control": "", "ajuste": {}, "entregado": None,
     }
 
 
@@ -228,7 +233,8 @@ def dict_a_pico(d: dict) -> Pico:
                 reaccion=list(d["reaccion"]), foco=d["foco"], etiqueta=d["etiqueta"])
 
 
-HEREDADO = ("veredicto", "nota", "clip", "publicacion", "publicado")
+HEREDADO = ("veredicto", "nota", "clip", "publicacion", "publicado",
+            "control", "nota_control", "ajuste", "entregado")
 
 
 def fusionar_picos(viejos: list[dict], nuevos: list[dict], tolerancia: float = 10.0) -> list[dict]:
@@ -282,6 +288,53 @@ def poner_veredicto(vod: dict, t: float, veredicto: str, nota: str | None = None
     if nota is not None:
         pico["nota"] = nota.strip()
     return pico
+
+
+def poner_control(vod: dict, t: float, control: str, nota: str | None = None) -> dict:
+    """El segundo veredicto: sobre el clip ya hecho, no sobre el momento.
+
+    El veredicto del pico se pone mirando el VOD embebido, antes de producir: dice
+    que el momento vale. No dice nada de si el clip salió bien (el corte, los
+    subtítulos, el gancho, el encuadre). Sin este paso lo primero que lo ve entero
+    es el streamer. Vacío lo borra.
+    """
+    if control and control not in CONTROLES:
+        raise ValueError(f"el control debe ser uno de {', '.join(CONTROLES)}")
+    pico = buscar_pico(vod, t)
+    if pico is None or not pico.get("clip"):
+        raise ValueError("ese pico no tiene un clip producido")
+    if pico.get("entregado") and control != "ok":
+        raise ValueError("ese clip ya se entregó: no se le puede sacar el visto bueno")
+    pico["control"] = control
+    if nota is not None:
+        pico["nota_control"] = nota.strip()
+    return pico
+
+
+def validar_ajuste(variante: str | None, corrimiento: float) -> tuple[str, float]:
+    """Normaliza lo que se pide al rehacer un clip. Levanta ValueError si no vale."""
+    from . import estilos
+    variante = (variante or "").strip()
+    if variante and variante not in {v.nombre for v in estilos.VARIANTES}:
+        raise ValueError(f"variante desconocida: {variante}")
+    if abs(corrimiento) > CORRIMIENTO_MAXIMO:
+        raise ValueError(f"el inicio se puede correr hasta {CORRIMIENTO_MAXIMO:.0f} s; "
+                         "más que eso es otro momento")
+    return variante, float(corrimiento)
+
+
+def marcar_entregado(vod: dict, tiempos: list[float], paquete: str,
+                     ahora: datetime | None = None) -> list[dict]:
+    """Anota que estos clips salieron en un paquete. Solo los que tienen el visto
+    bueno: si a alguno se lo sacaron mientras se armaba el zip, no se marca."""
+    fecha = (ahora or datetime.now()).isoformat(timespec="minutes")
+    marcados = []
+    for t in tiempos:
+        pico = buscar_pico(vod, t)
+        if pico and pico.get("clip") and pico.get("control") == "ok":
+            pico["entregado"] = {"fecha": fecha, "paquete": paquete}
+            marcados.append(pico)
+    return marcados
 
 
 def exigir_permiso(vod: dict, perfil: mod_perfiles.Perfil | None) -> None:
@@ -405,15 +458,25 @@ def descubrir(canal: str, limite: int = 5) -> list[dict]:
 
 
 def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
-                  desde: datetime | None = None, log=print) -> dict:
-    """Corta, reencuadra y subtitula un pico. Devuelve {clip, publicacion, avisos}."""
+                  desde: datetime | None = None, log=print,
+                  variante: str | None = None, corrimiento: float = 0.0) -> dict:
+    """Corta, reencuadra y subtitula un pico. Devuelve {clip, publicacion, avisos, ajuste}.
+
+    variante y corrimiento son para rehacer un clip que no pasó el control: otra
+    variante cambia el largo y el estilo; el corrimiento mueve el corte entero
+    (negativo = arranca antes). El `t` del pico guardado no se toca, porque es su
+    identidad en el estado: el corrimiento se aplica solo a la copia que se produce.
+    """
     from . import pipeline
     from .publicar import armar_publicacion, escribir_textos, planificar
 
+    variante, corrimiento = validar_ajuste(variante, corrimiento)
     perfil = perfil or mod_perfiles.Perfil(nombre=vod.get("streamer") or "")
     carpeta = SALIDA / vod["id"]
+    a_producir = dict_a_pico(pico)
+    a_producir.t += corrimiento
     hechos = pipeline.producir(
-        vod["url"], [dict_a_pico(pico)], carpeta=carpeta,
+        vod["url"], [a_producir], carpeta=carpeta, variante=variante or None,
         formato=perfil.formato_efectivo,
         facecam=tuple(perfil.facecam) if perfil.facecam else None,
         subtitulos=perfil.subtitulos, modelo=perfil.modelo, idioma=perfil.idioma or None,
@@ -427,11 +490,16 @@ def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
     escribir_textos([pub], carpeta)
     datos = asdict(pub)
     datos["variante"], datos["gancho"] = h.variante, h.gancho
-    return {"clip": f"{vod['id']}/{h.final.name}", "publicacion": datos, "avisos": h.avisos}
+    return {"clip": f"{vod['id']}/{h.final.name}", "publicacion": datos, "avisos": h.avisos,
+            "ajuste": {"variante": variante, "corrimiento": corrimiento}}
 
 
 def aplicar_clip(pico: dict, resultado: dict) -> dict:
     pico["clip"], pico["publicacion"] = resultado["clip"], resultado["publicacion"]
+    pico["ajuste"] = resultado.get("ajuste") or {}
+    # un clip recién hecho no lo miró nadie: el control anterior era de otro archivo.
+    # La nota se conserva, porque dice por qué se rehízo.
+    pico["control"] = ""
     return pico
 
 
