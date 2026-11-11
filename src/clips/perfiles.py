@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     ag.add_argument("--permiso", default="sin pedir", choices=PERMISOS)
     ag.add_argument("--notas", default="")
     ag.add_argument("--voz", default="tercero", choices=VOCES,
-                    help="propia: los clips los sube el streamer a su cuenta")
+                    help="propia: los clips van a la cuenta del streamer")
     a = ap.parse_args(argv)
 
     if a.cmd == "agregar":

@@ -32,8 +32,8 @@ HASHTAGS_BASE = ["clips", "stream", "twitch", "shorts"]
 
 # Quién habla en el post. Los textos nacieron para un canal de clips de terceros:
 # «el chat de AuronPlay no se ponía de acuerdo», «Clip del stream de AuronPlay»,
-# #clips. El modelo del proyecto terminó siendo otro, que el clip lo suba el propio
-# streamer a su cuenta, y ahí esos textos quedan hablando de él en tercera persona.
+# #clips. Con un cliente el clip va a la cuenta del propio streamer (la suba quien la
+# suba), y ahí esos textos quedan hablando de él en tercera persona.
 #   tercero: un canal de clips hablando del streamer (lo que había)
 #   propia:  el streamer en su cuenta; no se nombra a sí mismo ni se da crédito
 VOCES = ("tercero", "propia")

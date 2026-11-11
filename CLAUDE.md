@@ -144,6 +144,10 @@ módulo y en la nota del vault.
   nombra, no se da crédito y no lleva `#clips`. El valor por defecto es «tercero» para
   que el CLI y los perfiles viejos no cambien; a un cliente del servicio hay que
   ponerle «propia» a mano.
+- **Quién publica** (decidido el 2026-11-11). Por ahora el usuario, en su propio canal
+  de clips (voz `tercero`). Con un cliente, en la cuenta del cliente (voz `propia`): el
+  usuario, o el cliente mismo si lo prefiere. La entrega cubre ese segundo caso, además
+  de la muestra del primer mensaje y la vista previa.
 - **«Dudoso» cuenta como error y la precisión va con intervalo de Wilson**
   (`revision.py`). Con 50 veredictos como mucho, un porcentaje suelto invita a creerle
   de más.

@@ -1,10 +1,12 @@
 """El paquete que se le manda al streamer: los clips aprobados de un directo.
 
-El modelo del proyecto es un servicio: los clips los sube el streamer a sus cuentas.
-`publicar.py` deja un `.txt` por plataforma pensado para que los pegue quien opera el
-pipeline; lo que hace falta acá es otra cosa, una carpeta que se pueda mandar tal
-cual a alguien que no conoce el pipeline ni tiene por qué: los videos con un nombre
-que se entienda, el texto de cada uno al lado y un LEEME que diga qué es.
+Sirve para tres cosas: la muestra que acompaña el primer mensaje a un streamer, que
+un cliente pueda ver los clips antes de que se publiquen en su cuenta, y el cliente
+que prefiere subirlos él mismo. `publicar.py`
+deja un `.txt` por plataforma pensado para quien opera el pipeline; esto es otra
+cosa, una carpeta que se pueda mandar tal cual a alguien que no conoce el pipeline ni
+tiene por qué: los videos con un nombre que se entienda, el texto de cada uno al lado
+y un LEEME que diga qué es.
 
 Igual que `publicar.py` y el panel, **no publica ni manda nada**: arma la carpeta y
 el zip, y para.
