@@ -106,7 +106,8 @@ def perfil_desde_formulario(d: dict, actual: mod_perfiles.Perfil | None) -> mod_
     canales y el permiso.
     """
     base = asdict(actual) if actual else {"nombre": d.get("nombre", "")}
-    for campo in ("nombre", "formato", "juego", "idioma", "permiso", "notas", "modelo", "voz"):
+    for campo in ("nombre", "formato", "juego", "idioma", "permiso", "notas", "modelo", "voz",
+                  "usuario_x"):
         if campo in d:
             base[campo] = str(d[campo]).strip()
     if "canales" in d:

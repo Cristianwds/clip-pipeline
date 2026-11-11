@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 212 tests, corren en unos segundos
+.venv/bin/python -m pytest tests/ -q          # 223 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -144,6 +144,14 @@ módulo y en la nota del vault.
   nombra, no se da crédito y no lleva `#clips`. El valor por defecto es «tercero» para
   que el CLI y los perfiles viejos no cambien; a un cliente del servicio hay que
   ponerle «propia» a mano.
+- **Quién publica** (decidido el 2026-11-11). Por ahora el usuario, en su propio canal
+  de clips (voz `tercero`). Con un cliente, en la cuenta del cliente (voz `propia`): el
+  usuario, o el cliente mismo si lo prefiere. La entrega cubre ese segundo caso, además
+  de la muestra del primer mensaje y la vista previa.
+- **En X el crédito menciona al streamer** si su perfil tiene `usuario_x`
+  (`metadatos.armar`, campo `descripcion_x`). Va en la línea del crédito y nunca al
+  principio: un post que arranca con @usuario se trata como respuesta. En voz propia
+  no se menciona. Las otras plataformas no cambian.
 - **«Dudoso» cuenta como error y la precisión va con intervalo de Wilson**
   (`revision.py`). Con 50 veredictos como mucho, un porcentaje suelto invita a creerle
   de más.

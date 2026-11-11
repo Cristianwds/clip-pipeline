@@ -278,3 +278,57 @@ def test_perfiles_y_metadatos_conocen_las_mismas_voces():
 
 def test_un_perfil_guardado_antes_de_que_existiera_la_voz_es_de_tercero():
     assert perfiles.desde_dict({"nombre": "Viejo", "permiso": "pedido"}).voz == "tercero"
+
+
+# --- mención en X ----------------------------------------------------------
+
+def _meta_x(**kw):
+    return metadatos.armar(_TEMA, "gracioso", _URL, 6507, streamer="AuronPlay",
+                           lineas=["romance o a malas le puedo decir"], **kw)
+
+
+def test_la_mencion_reemplaza_el_nombre_en_el_credito_solo_para_x():
+    m = _meta_x(mencion_x="auronplay")
+    assert "Clip del stream de @auronplay." in m.descripcion_x
+    assert "Clip del stream de AuronPlay." not in m.descripcion_x
+    assert "@" not in m.descripcion                    # las otras plataformas no cambian
+
+
+def test_la_mencion_nunca_abre_el_texto():
+    # un post que arranca con @usuario se trata como respuesta y lo ve menos gente
+    sin_cita = metadatos.armar(_TEMA, "gracioso", _URL, 6507, streamer="AuronPlay",
+                               mencion_x="auronplay")
+    for m in (_meta_x(mencion_x="auronplay"), sin_cita):
+        assert not m.descripcion_x.lstrip().startswith("@")
+
+
+def test_sin_usuario_no_hay_texto_aparte_para_x():
+    assert _meta_x().descripcion_x is None
+
+
+def test_en_voz_propia_el_streamer_no_se_menciona_a_si_mismo():
+    assert _meta_x(voz="propia", mencion_x="auronplay").descripcion_x is None
+
+
+def test_la_mencion_llega_al_texto_de_x_y_sobrevive_al_recorte(tmp_path, monkeypatch):
+    from clips import publicar
+    from clips.picos import Pico
+    monkeypatch.setattr(publicar, "medir", lambda clip: publicar.Medidas(20.0, 10.0, 1080, 1920))
+    pico = Pico(t=6507.0, score=9.0, tasa=20.0, tema=_TEMA, foco=0.5, etiqueta="gracioso")
+    pub = _armar_publicacion(tmp_path / "c.mp4", pico, _URL, streamer="AuronPlay",
+                             lineas=["romance o a malas le puedo decir que se vaya a la mierda"],
+                             mencion_x="auronplay")
+    x = pub.plataformas["x"]["descripcion"]
+    assert "@auronplay" in x and len(x) <= 280
+    assert "@auronplay" not in pub.plataformas["tiktok"]["descripcion"]
+
+
+@pytest.mark.parametrize("crudo, limpio", [("@auronplay", "auronplay"), (" Rubius_ ", "Rubius_"), ("", "")])
+def test_el_usuario_de_x_se_guarda_sin_arroba(crudo, limpio):
+    assert perfiles.validar(perfiles.Perfil("Alguien", usuario_x=crudo)).usuario_x == limpio
+
+
+@pytest.mark.parametrize("malo", ["https://x.com/auronplay", "con espacio", "x" * 16])
+def test_un_usuario_de_x_que_no_es_un_usuario_se_rechaza(malo):
+    with pytest.raises(ValueError):
+        perfiles.validar(perfiles.Perfil("Alguien", usuario_x=malo))

@@ -493,7 +493,8 @@ function vistaStreamers(m) {
       <div><label for="p-facecam">Facecam: X,Y,ANCHO,ALTO</label><input id="p-facecam" name="facecam" placeholder="4,268,320,188" style="width:100%"></div>
       <div><label for="p-idioma">Idioma (vacío = detectar)</label><input id="p-idioma" name="idioma" placeholder="es" style="width:100%"></div>
       <div><label for="p-permiso">Permiso para publicar clips</label><select id="p-permiso" name="permiso" style="width:100%">${op(S.opciones.permisos)}</select></div>
-      <div><label for="p-voz" title="propia: los clips los sube el streamer a su cuenta, y los textos no lo nombran ni le dan crédito. tercero: van a un canal de clips.">Cuenta donde se suben</label><select id="p-voz" name="voz" style="width:100%">${op(S.opciones.voces)}</select></div>
+      <div><label for="p-voz" title="propia: los clips van a la cuenta del streamer, y los textos no lo nombran ni le dan crédito. tercero: van a un canal de clips.">Cuenta donde se suben</label><select id="p-voz" name="voz" style="width:100%">${op(S.opciones.voces)}</select></div>
+      <div><label for="p-usuario-x" title="Si está, el texto de X lo menciona en el crédito. No se usa cuando los clips van a su propia cuenta.">Usuario de X (para mencionarlo)</label><input id="p-usuario-x" name="usuario_x" placeholder="sin la arroba" style="width:100%"></div>
       <div class="todo"><label for="p-canales">Canales donde salen sus VODs (uno por línea)</label>
         <textarea id="p-canales" name="canales" rows="2" style="width:100%" placeholder="https://www.twitch.tv/CANAL/videos?filter=archives"></textarea></div>
       <div class="todo"><label for="p-notas">Notas</label><input id="p-notas" name="notas" style="width:100%"></div>
@@ -561,7 +562,7 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.editar) {
     const p = perfilDe(b.dataset.editar), f = $("#f-perfil");
-    for (const k of ["nombre", "juego", "formato", "idioma", "permiso", "notas", "voz"]) f.elements[k].value = p[k] || "";
+    for (const k of ["nombre", "juego", "formato", "idioma", "permiso", "notas", "voz", "usuario_x"]) f.elements[k].value = p[k] || "";
     f.elements.facecam.value = p.facecam ? p.facecam.join(",") : "";
     f.elements.canales.value = p.canales.join("\n");
     f.scrollIntoView({ behavior: "smooth" }); f.elements.nombre.focus();

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -44,6 +45,8 @@ class Perfil:
     # En qué cuenta se sube: "propia" si los clips los publica el streamer en la suya
     # (los textos no lo nombran ni le dan crédito), "tercero" si van a un canal de clips.
     voz: str = "tercero"
+    # Su usuario de X, sin arroba. Si está, el texto de X lo menciona en el crédito.
+    usuario_x: str = ""
 
     @property
     def formato_efectivo(self) -> str:
@@ -79,6 +82,10 @@ def validar(p: Perfil) -> Perfil:
         raise ValueError(f"formato debe ser uno de {', '.join(FORMATOS)}")
     if p.permiso not in PERMISOS:
         raise ValueError(f"permiso debe ser uno de {', '.join(PERMISOS)}")
+    p.usuario_x = (p.usuario_x or "").strip().lstrip("@")
+    if p.usuario_x and not re.fullmatch(r"[A-Za-z0-9_]{1,15}", p.usuario_x):
+        raise ValueError("el usuario de X son hasta 15 letras, números o guiones bajos, "
+                         "sin la URL")
     if p.voz not in VOCES:
         raise ValueError(f"voz debe ser una de {', '.join(VOCES)}")
     p.canales = [c.strip() for c in p.canales if c and c.strip()]
@@ -144,15 +151,17 @@ def main(argv: list[str] | None = None) -> int:
     ag.add_argument("--idioma", default="")
     ag.add_argument("--permiso", default="sin pedir", choices=PERMISOS)
     ag.add_argument("--notas", default="")
+    ag.add_argument("--usuario-x", default="", help="su usuario de X, para mencionarlo")
     ag.add_argument("--voz", default="tercero", choices=VOCES,
-                    help="propia: los clips los sube el streamer a su cuenta")
+                    help="propia: los clips van a la cuenta del streamer")
     a = ap.parse_args(argv)
 
     if a.cmd == "agregar":
         try:
             p = Perfil(nombre=a.nombre, canales=a.canal, facecam=parsear_facecam(a.facecam),
                        formato=a.formato, juego=a.juego, idioma=a.idioma,
-                       permiso=a.permiso, notas=a.notas, voz=a.voz)
+                       permiso=a.permiso, notas=a.notas, voz=a.voz,
+                       usuario_x=a.usuario_x)
             ruta = guardar(poner(cargar(), p))
         except ValueError as e:
             print(e)

@@ -32,8 +32,8 @@ HASHTAGS_BASE = ["clips", "stream", "twitch", "shorts"]
 
 # Quién habla en el post. Los textos nacieron para un canal de clips de terceros:
 # «el chat de AuronPlay no se ponía de acuerdo», «Clip del stream de AuronPlay»,
-# #clips. El modelo del proyecto terminó siendo otro, que el clip lo suba el propio
-# streamer a su cuenta, y ahí esos textos quedan hablando de él en tercera persona.
+# #clips. Con un cliente el clip va a la cuenta del propio streamer (la suba quien la
+# suba), y ahí esos textos quedan hablando de él en tercera persona.
 #   tercero: un canal de clips hablando del streamer (lo que había)
 #   propia:  el streamer en su cuenta; no se nombra a sí mismo ni se da crédito
 VOCES = ("tercero", "propia")
@@ -278,13 +278,18 @@ class Metadatos:
     descripcion: str
     hashtags: list[str] = field(default_factory=list)
     cita: str | None = None
+    # La descripción para X, cuando difiere: ahí el crédito menciona la cuenta del
+    # streamer en vez de nombrarlo. None = usar la descripción común.
+    descripcion_x: str | None = None
 
 
 def armar(
     tema: list[str], etiqueta: str, url_fuente: str, segundo: int,
     lineas: list[str] | None = None, streamer: str | None = None,
-    juego: str | None = None, voz: str = "tercero",
+    juego: str | None = None, voz: str = "tercero", mencion_x: str | None = None,
 ) -> Metadatos:
+    """mencion_x: usuario de X del streamer, sin arroba. Solo se usa en voz de
+    tercero: en su propia cuenta el streamer no se menciona a sí mismo."""
     propia = _validar_voz(voz) == "propia"
     vocab = {w.strip(".,¿?¡!").lower() for l in (lineas or []) for w in l.split()}
     # se consolida una sola vez y se usa para las dos cosas: asi la cita se busca
@@ -306,8 +311,20 @@ def armar(
         if streamer:
             partes.append(f"Clip del stream de {streamer}.")
         partes.append(f"Fuente: {_con_tiempo(url_fuente, segundo)}")
+    descripcion_x = None
+    if mencion_x and not propia:
+        # La mención va en la línea del crédito y nunca al principio del texto: un
+        # post de X que arranca con @usuario se trata como respuesta y lo ve menos
+        # gente. Que el streamer reciba la notificación es además la forma más
+        # barata de que se entere de que el canal existe.
+        credito = f"Clip del stream de @{mencion_x}."
+        partes_x = [credito if p.startswith("Clip del stream de ") else p for p in partes]
+        if credito not in partes_x:
+            partes_x.insert(len(partes_x) - 1, credito)
+        descripcion_x = "\n\n".join(partes_x)
     return Metadatos(titulo=titulo, descripcion="\n\n".join(partes),
-                     hashtags=hashtags(etiqueta, streamer, juego, voz=voz), cita=cita)
+                     hashtags=hashtags(etiqueta, streamer, juego, voz=voz), cita=cita,
+                     descripcion_x=descripcion_x)
 
 
 def _con_tiempo(url: str, segundo: int) -> str:
