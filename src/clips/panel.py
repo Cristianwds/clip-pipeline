@@ -283,6 +283,9 @@ def accion(ruta: str, d: dict) -> dict:
         TRABAJOS.encolar(f"Producir clip {d['id'][-12:]} @ {int(float(d['t']))}s",
                          lambda: trabajo_producir(d["id"], float(d["t"])))
         return {}
+    if ruta == "/api/facecam":
+        mutar(lambda est: lote.poner_facecam(_vod_o_error(est, d["id"]), d.get("facecam")))
+        return {}
     if ruta == "/api/control":
         mutar(lambda est: lote.poner_control(
             _vod_o_error(est, d["id"]), float(d["t"]), d.get("control", ""), d.get("nota")))

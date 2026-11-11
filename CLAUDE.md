@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 205 tests, corren en unos segundos
+.venv/bin/python -m pytest tests/ -q          # 212 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -99,6 +99,10 @@ módulo y en la nota del vault.
 - **La facecam se pasa a mano** (`--facecam x,y,w,h`). Es una constante por streamer y
   detectarla sin modelo es poco confiable. En el VOD de prueba ni siquiera estaba en una
   esquina.
+- **La facecam del VOD manda sobre la del perfil** (`lote.encuadre`). Es constante por
+  streamer casi siempre, pero cambia con el juego o la escena. Se mide desde el mismo
+  medidor, con «Guardar solo para este VOD». No cambia el formato: eso lo decide el
+  perfil.
 - **Subtítulos en ASS, no SRT** (`subtitulos.a_ass`). Un SRT quemado sale con el estilo
   por defecto de libass: chico, sin contorno, ilegible sobre imagen clara.
 - **El gancho se arma DESPUÉS de transcribir** (`cli.py`). Si no, sale con la falta de
