@@ -10,3 +10,6 @@ datos/*
 !datos/.gitkeep
 salida/*
 !salida/.gitkeep
+
+# Permisos locales de Claude Code: son de esta máquina, no del proyecto.
+.claude/settings.local.json

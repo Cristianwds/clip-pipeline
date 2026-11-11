@@ -46,6 +46,70 @@ Con `--ordenar score|foco|prioridad` se puede comparar. Fijate el último: tení
 score más alto del VOD** y es el peor clip, porque no hay ningún tema (foco 0.02) — es
 chat spameando emotes.
 
+## Modo lote y panel
+
+Para trabajar con varios streamers y varios VODs hay tres piezas más: **perfiles**, una
+**cola** con memoria y un **panel web local**.
+
+```bash
+# 1. un perfil por streamer: lo que antes iba por flags en cada corrida
+PYTHONPATH=src .venv/bin/python -m clips.perfiles agregar AuronPlay \
+    --canal "https://www.youtube.com/@auron/streams" \
+    --formato dividido --facecam 4,268,320,188 --idioma es
+
+# 2. sumar VODs a la cola (a mano, o los últimos del canal) y analizarlos
+PYTHONPATH=src .venv/bin/python -m clips.lote agregar "<url>" --streamer AuronPlay
+PYTHONPATH=src .venv/bin/python -m clips.lote descubrir AuronPlay --limite 3
+PYTHONPATH=src .venv/bin/python -m clips.lote correr
+
+# 3. revisar, producir y publicar desde el navegador
+PYTHONPATH=src .venv/bin/python -m clips.panel      # http://localhost:8765
+```
+
+El panel tiene cuatro pestañas:
+
+- **Tablero**: la cola de VODs, la precisión medida y el registro de lo que está corriendo.
+- **Revisión**: un pico a la vez, con el VOD embebido 20 segundos antes del momento.
+  `B` bueno, `D` dudoso, `M` malo, `S` saltar, `P` bueno y producir el clip.
+- **Clips**: cada clip producido con su texto por plataforma para copiar, el archivo
+  para bajar y el link de subida. Ahí se anota la URL del post y después las vistas.
+- **Streamers**: los perfiles, incluido si el streamer **dio permiso** para publicar.
+
+Analizar un VOD solo baja el chat, así que revisar 50 picos no ocupa disco: el video se
+mira embebido desde la plataforma y recién se corta el clip de lo que se aprueba.
+
+### Chats chicos
+
+El detector necesita chat. Medido con VODs de canales medianos:
+
+| Chat | Qué sale |
+| :--- | :--- |
+| 0,4 msg/s o más | 3 a 8 picos por VOD (con ventana más ancha por debajo de 0,8) |
+| 0,2 a 0,4 msg/s | 0 a 2 picos, casi siempre flojos |
+| menos de 0,2 msg/s | 0 o 1 pico: no alcanza la señal |
+
+De 24 canales hispanohablantes de 360 a 930 espectadores promedio, solo 3 superaron
+0,4 msg/s.
+
+Para chats de menos de 0,8 msg/s la ventana se ensancha sola (de 5 s hasta 30 s) para
+juntar unos 4 mensajes por bin; el umbral no cambia. **Los espectadores promedio no
+predicen la tasa de chat**: antes de ofrecerle el servicio a un streamer hay que correr
+un VOD suyo y mirar los msg/s, que el tablero muestra en la columna de mensajes.
+
+### Cuánto acierta
+
+La revisión no es solo un filtro: cada veredicto queda guardado y el tablero calcula la
+**precisión en el top 5** (de los cinco primeros picos de cada VOD, cuántos son
+publicables), con su intervalo de confianza y abierta por puesto, prioridad, foco, tipo
+de momento, streamer y plataforma.
+
+- «Dudoso» cuenta como error: la pregunta es cuántos clips salen sin que alguien los rescate.
+- El intervalo es de Wilson. Con 50 veredictos como mucho, el número suelto engaña.
+- Reanalizar un VOD conserva los veredictos: son el único dato que no se puede regenerar.
+
+El panel **no publica**, igual que el resto del pipeline: deja todo listo y registra lo
+que vos marcás como publicado. Escucha solo en `127.0.0.1`.
+
 ## Cómo decide qué es un pico
 
 Dos correcciones que hacen la diferencia entre algo que funciona y algo que no:
@@ -380,9 +444,14 @@ automático.
 | `src/clips/metadatos.py` | Título, gancho, cita y hashtags |
 | `src/clips/publicar.py` | Valida por plataforma y escribe el manifiesto |
 | `src/clips/cuentas.py` | Registro de cuentas y monetización |
-| `src/clips/cli.py` | Orquesta todo |
+| `src/clips/pipeline.py` | Del pico al clip: corte, reencuadre y subtítulos |
+| `src/clips/perfiles.py` | Perfil por streamer: facecam, formato, canales, permiso |
+| `src/clips/lote.py` | La cola de VODs, los veredictos y lo publicado |
+| `src/clips/revision.py` | Precisión del detector contra veredictos humanos |
+| `src/clips/panel.py` + `panel.html` | Panel web local |
+| `src/clips/cli.py` | Un VOD de punta a punta desde la terminal |
 
-`datos/` guarda el cache de chats y `salida/` los clips: ninguno va al repo.
+`datos/` guarda el cache de chats y el estado del lote (`lote.json`), y `salida/` los clips: ninguno va al repo.
 
 Hay un [CLAUDE.md](CLAUDE.md) con el mapa de dependencias, las decisiones ya tomadas y
 las trampas conocidas, para no tener que leer todo el código antes de un cambio chico.

@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import chat, metadatos, picos as mod_picos
+from . import chat, picos as mod_picos
 
 
 def link(url: str, p: mod_picos.Pico) -> str:
@@ -23,7 +23,8 @@ def link(url: str, p: mod_picos.Pico) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Detecta highlights en un VOD usando el chat.")
     ap.add_argument("url", help="URL del VOD de Twitch o YouTube")
-    ap.add_argument("--ventana", type=float, default=5.0, help="bin en segundos (default 5)")
+    ap.add_argument("--ventana", type=float, default=None,
+                    help="bin en segundos (default: 5, o más ancho si el chat es chico)")
     ap.add_argument("--base", type=float, default=600.0, help="ancho de la mediana movil (default 600s)")
     ap.add_argument("--umbral", type=float, default=None, help="score minimo en sigmas (default: automatico segun duracion)")
     ap.add_argument("--separacion", type=float, default=90.0, help="segundos minimos entre picos")
@@ -83,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(mensajes)} mensajes sobre {dur / 3600:.1f} h "
           f"({len(mensajes) / max(dur, 1):.2f} msg/s de promedio)\n")
 
+    if a.ventana is None:
+        a.ventana = mod_picos.ventana_sugerida(mensajes)
+        if a.ventana > mod_picos.VENTANA_BASE:
+            print(f"Chat chico: ventana de {a.ventana:.0f} s en vez de 5\n")
     picos = mod_picos.detectar(
         mensajes, ventana=a.ventana, base_seg=a.base,
         umbral=a.umbral, separacion=a.separacion,
@@ -117,82 +122,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {n:>2}. {link(a.url, p)}")
 
     if a.cortar:
-        from .cortar import cortar
+        from . import pipeline
+        from .cortar import SALIDA
+        from .publicar import armar_publicacion, escribir, planificar
         print()
-        from . import estilos
-        elegidos = picos[: a.cortar]
-        variantes = []
-        for i, pico in enumerate(elegidos):
-            if a.variante:
-                v = next((x for x in estilos.VARIANTES if x.nombre == a.variante), None)
-                if v is None:
-                    print(f"variante desconocida: {a.variante}. Son: "
-                          f"{', '.join(x.nombre for x in estilos.VARIANTES)}", file=sys.stderr)
-                    return 2
-            else:
-                v = estilos.elegir(i, pico.etiqueta)
-            variantes.append(v)
-            print(f"  clip {i + 1}: variante «{v.nombre}» ({v.duracion:.0f}s)")
-        hechos = cortar(a.url, elegidos,
-                        duraciones=[(v.antes, v.despues) for v in variantes])
-        verticales: list = []
-        if hechos and a.formato != "nada":
-            from .reencuadre import reencuadrar
-            for h in hechos:
-                print(f"  reencuadrando {h.name} a 9:16 ({a.formato})...", flush=True)
-                try:
-                    v = reencuadrar(h, modo=a.formato, facecam=facecam)
-                    print(f"    -> {v.name}")
-                    verticales.append(v)
-                except Exception as e:
-                    print(f"    ! falló: {e}")
-        finales = verticales or hechos
-        lineas_por_clip: dict = {}
-        if a.subtitulos:
-            from .subtitulos import preparar, rematar
-            con_sub = []
-            for v in finales:
-                print(f"  subtitulando {v.name} (modelo {a.modelo})...", flush=True)
-                i = finales.index(v)
-                var = variantes[i] if i < len(variantes) else estilos.VARIANTES[0]
-                pico = elegidos[i] if i < len(elegidos) else None
-                try:
-                    # primero la transcripción: el gancho y el resaltado se arman con
-                    # el audio, que es el que tiene la ortografía correcta
-                    objetos, _ = preparar(v, a.modelo, a.idioma, var.max_chars)
-                    lineas = [l.texto for l in objetos]
-                    vocab = {w.strip(".,¿?¡!").lower() for l in lineas for w in l.split()}
-                    claves = metadatos.claves_del_tema(pico.tema, vocab) if pico else set()
-                    texto_gancho = ""
-                    if var.gancho and not a.sin_gancho and pico:
-                        texto_gancho = metadatos.gancho(pico.tema, pico.etiqueta, vocab)
-                        print(f"    gancho: {texto_gancho}")
-                    sub = rematar(
-                        v, objetos, cuerpo=var.cuerpo, margen_abajo=var.margen_abajo,
-                        claves=claves, color_clave=var.color_clave, gancho=texto_gancho)
-                    print(f"    -> {sub.name} ({len(lineas)} líneas)")
-                    lineas_por_clip[sub.name] = lineas
-                    con_sub.append(sub)
-                except Exception as e:
-                    print(f"    ! falló: {e}")
-                    con_sub.append(v)
-            finales = con_sub
-
-        if finales:
-            from .publicar import armar_publicacion, escribir, planificar
-            from .cortar import SALIDA
-            pubs = []
-            for clip, pico in zip(finales, elegidos):
-                try:
-                    pubs.append(armar_publicacion(
-                        clip, pico, a.url, lineas=lineas_por_clip.get(clip.name),
-                        streamer=a.streamer, juego=a.juego))
-                except Exception as e:
-                    print(f"  ! no pude armar el plan de {clip.name}: {e}")
-            if pubs:
-                js, md = escribir(planificar(pubs), SALIDA)
-                print(f"\n  plan de publicación: {md.name} (y {js.name})")
-                print("  NO se publicó nada: revisalo antes de subir.")
+        try:
+            hechos = pipeline.producir(
+                a.url, picos[: a.cortar], formato=a.formato, facecam=facecam,
+                subtitulos=a.subtitulos, modelo=a.modelo, idioma=a.idioma,
+                variante=a.variante, sin_gancho=a.sin_gancho)
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+        pubs = []
+        for h in hechos:
+            try:
+                pubs.append(armar_publicacion(
+                    h.final, h.pico, a.url, lineas=h.lineas,
+                    streamer=a.streamer, juego=a.juego))
+            except Exception as e:
+                print(f"  ! no pude armar el plan de {h.final.name}: {e}")
+        if pubs:
+            js, md = escribir(planificar(pubs), SALIDA)
+            print(f"\n  plan de publicación: {md.name} (y {js.name})")
+            print("  NO se publicó nada: revisalo antes de subir.")
         print(f"{len(hechos)} clips en salida/")
     return 0
 
