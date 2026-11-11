@@ -24,6 +24,9 @@ REGISTRO = Path(os.environ.get(
 
 FORMATOS = ("desenfoque", "recorte", "dividido", "nada")
 PERMISOS = ("sin pedir", "pedido", "concedido", "negado")
+# Las mismas que `metadatos.VOCES`. Están repetidas para que este módulo siga sin
+# importar nada del proyecto; hay un test que exige que coincidan.
+VOCES = ("tercero", "propia")
 
 
 @dataclass
@@ -38,6 +41,9 @@ class Perfil:
     subtitulos: bool = True
     permiso: str = "sin pedir"
     notas: str = ""
+    # En qué cuenta se sube: "propia" si los clips los publica el streamer en la suya
+    # (los textos no lo nombran ni le dan crédito), "tercero" si van a un canal de clips.
+    voz: str = "tercero"
 
     @property
     def formato_efectivo(self) -> str:
@@ -73,6 +79,8 @@ def validar(p: Perfil) -> Perfil:
         raise ValueError(f"formato debe ser uno de {', '.join(FORMATOS)}")
     if p.permiso not in PERMISOS:
         raise ValueError(f"permiso debe ser uno de {', '.join(PERMISOS)}")
+    if p.voz not in VOCES:
+        raise ValueError(f"voz debe ser una de {', '.join(VOCES)}")
     p.canales = [c.strip() for c in p.canales if c and c.strip()]
     for c in p.canales:
         if not c.startswith(("http://", "https://")):
@@ -136,13 +144,15 @@ def main(argv: list[str] | None = None) -> int:
     ag.add_argument("--idioma", default="")
     ag.add_argument("--permiso", default="sin pedir", choices=PERMISOS)
     ag.add_argument("--notas", default="")
+    ag.add_argument("--voz", default="tercero", choices=VOCES,
+                    help="propia: los clips los sube el streamer a su cuenta")
     a = ap.parse_args(argv)
 
     if a.cmd == "agregar":
         try:
             p = Perfil(nombre=a.nombre, canales=a.canal, facecam=parsear_facecam(a.facecam),
                        formato=a.formato, juego=a.juego, idioma=a.idioma,
-                       permiso=a.permiso, notas=a.notas)
+                       permiso=a.permiso, notas=a.notas, voz=a.voz)
             ruta = guardar(poner(cargar(), p))
         except ValueError as e:
             print(e)

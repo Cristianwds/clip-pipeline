@@ -485,11 +485,12 @@ def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
         raise RuntimeError("no se pudo cortar el clip (¿el VOD sigue disponible?)")
     h = hechos[0]
     pub = armar_publicacion(h.final, h.pico, vod["url"], lineas=h.lineas,
-                            streamer=perfil.nombre or None, juego=perfil.juego or None)
+                            streamer=perfil.nombre or None, juego=perfil.juego or None,
+                            voz=perfil.voz)
     planificar([pub], desde=desde)
     escribir_textos([pub], carpeta)
     datos = asdict(pub)
-    datos["variante"], datos["gancho"] = h.variante, h.gancho
+    datos["variante"], datos["gancho"], datos["voz"] = h.variante, h.gancho, perfil.voz
     return {"clip": f"{vod['id']}/{h.final.name}", "publicacion": datos, "avisos": h.avisos,
             "ajuste": {"variante": variante, "corrimiento": corrimiento}}
 

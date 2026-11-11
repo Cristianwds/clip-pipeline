@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 196 tests, corren en unos segundos
+.venv/bin/python -m pytest tests/ -q          # 205 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -135,6 +135,11 @@ módulo y en la nota del vault.
 - **La entrega es por directo y sí se arma sin permiso concedido** (`entrega.armar`).
   Los clips hechos son lo que se manda para pedirlo; el LEEME lo presenta como muestra.
   Solo «negado» la frena. Registrar una publicación sigue exigiendo «concedido».
+- **Los textos tienen voz** (`metadatos.VOCES`, campo `voz` del perfil). «tercero» es
+  un canal de clips hablando del streamer; «propia» es el streamer en su cuenta: no se
+  nombra, no se da crédito y no lleva `#clips`. El valor por defecto es «tercero» para
+  que el CLI y los perfiles viejos no cambien; a un cliente del servicio hay que
+  ponerle «propia» a mano.
 - **«Dudoso» cuenta como error y la precisión va con intervalo de Wilson**
   (`revision.py`). Con 50 veredictos como mucho, un porcentaje suelto invita a creerle
   de más.
@@ -173,6 +178,8 @@ módulo y en la nota del vault.
 - **Un test que guarde el estado en la ruta por defecto escribiría respaldos en la
   config real.** `tests/conftest.py` redirige `lote.RESPALDOS` a una carpeta temporal
   para todos; no sacarlo.
+- **`perfiles.VOCES` repite `metadatos.VOCES`** para que `perfiles` siga sin importar
+  nada del proyecto. Hay un test que exige que coincidan.
 - **El chat escribe mal y el audio no.** `metadatos.consolidar` corrige la ortografía
   cruzando los dos, con un límite: 2 ediciones si el chat escribió la palabra de varias
   formas, 1 sola si fue consistente. Sin ese límite convertía `malas` en `mata`.

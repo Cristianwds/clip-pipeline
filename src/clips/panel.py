@@ -106,7 +106,7 @@ def perfil_desde_formulario(d: dict, actual: mod_perfiles.Perfil | None) -> mod_
     canales y el permiso.
     """
     base = asdict(actual) if actual else {"nombre": d.get("nombre", "")}
-    for campo in ("nombre", "formato", "juego", "idioma", "permiso", "notas", "modelo"):
+    for campo in ("nombre", "formato", "juego", "idioma", "permiso", "notas", "modelo", "voz"):
         if campo in d:
             base[campo] = str(d[campo]).strip()
     if "canales" in d:
@@ -131,6 +131,7 @@ def vista(estado: dict, perfiles: list[mod_perfiles.Perfil]) -> dict:
         "plataformas": {k: {"nombre": p.nombre, "subida": SUBIDA.get(k, "")}
                         for k, p in PLATAFORMAS.items()},
         "opciones": {"formatos": mod_perfiles.FORMATOS, "permisos": mod_perfiles.PERMISOS,
+                     "voces": mod_perfiles.VOCES,
                      "variantes": [v.nombre for v in estilos.VARIANTES],
                      "corrimiento_maximo": lote.CORRIMIENTO_MAXIMO},
         "disco_libre_gb": round(libre / 1e9, 1),

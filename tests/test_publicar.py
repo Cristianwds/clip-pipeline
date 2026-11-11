@@ -211,3 +211,70 @@ def test_dos_pares_repetidos_tambien_son_coreo():
     from clips.metadatos import _es_coreo
     assert _es_coreo(
         "matala abuela matala abuela le puedo decir que se vaya a la mierda".split())
+
+
+# --- voz: quién habla en el post -------------------------------------------
+
+import pytest  # noqa: E402
+
+from clips import metadatos, perfiles  # noqa: E402
+from clips.publicar import armar_publicacion as _armar_publicacion  # noqa: E402
+
+_TEMA = ["romanse×8", "malas×9"]
+_URL = "https://www.twitch.tv/videos/1"
+
+
+def _meta(voz, tema=_TEMA, etiqueta="gracioso"):
+    return metadatos.armar(tema, etiqueta, _URL, 6507, lineas=["romance o a malas le puedo decir"],
+                           streamer="AuronPlay", juego="AC Odyssey", voz=voz)
+
+
+def test_en_voz_propia_el_streamer_no_se_nombra_ni_se_da_credito():
+    m = _meta("propia")
+    assert "AuronPlay" not in m.titulo and "AuronPlay" not in m.descripcion
+    assert "Clip del stream" not in m.descripcion and "Fuente:" not in m.descripcion
+    assert "romance" in m.titulo.lower()               # el contenido es el mismo
+
+
+def test_en_voz_propia_el_link_al_directo_se_conserva_con_el_minuto():
+    assert "El directo completo: https://www.twitch.tv/videos/1?t=1h48m27s" in _meta("propia").descripcion
+
+
+def test_en_voz_propia_no_va_el_hashtag_de_canal_de_clips():
+    h = _meta("propia").hashtags
+    assert "clips" not in h and "twitch" not in h
+    assert h[0] == "auronplay"                          # su nombre sí: es su marca
+
+
+def test_la_voz_de_tercero_no_cambio():
+    # es el comportamiento de antes y el del CLI: no puede moverse sin querer
+    m = _meta("tercero")
+    assert m.titulo == "Malas vs romance — el chat de AuronPlay no se ponía de acuerdo"
+    assert "Clip del stream de AuronPlay." in m.descripcion and "Fuente:" in m.descripcion
+    assert "clips" in m.hashtags
+    assert metadatos.armar(_TEMA, "gracioso", _URL, 6507, streamer="AuronPlay").titulo == \
+        metadatos.armar(_TEMA, "gracioso", _URL, 6507, streamer="AuronPlay", voz="tercero").titulo
+
+
+def test_con_un_solo_tema_no_se_dice_que_el_chat_no_se_ponia_de_acuerdo():
+    assert _meta("propia", tema=["faker×9"]).titulo == "Faker: lo que pedía el chat"
+
+
+def test_sin_tema_el_titulo_propio_habla_del_directo():
+    assert _meta("propia", tema=[], etiqueta="épico").titulo == "El momentazo del directo"
+
+
+def test_una_voz_desconocida_se_rechaza():
+    with pytest.raises(ValueError):
+        _meta("mia")
+    with pytest.raises(ValueError):
+        perfiles.validar(perfiles.Perfil("Alguien", voz="mia"))
+
+
+def test_perfiles_y_metadatos_conocen_las_mismas_voces():
+    # están repetidas para que perfiles no importe nada del proyecto
+    assert perfiles.VOCES == metadatos.VOCES
+
+
+def test_un_perfil_guardado_antes_de_que_existiera_la_voz_es_de_tercero():
+    assert perfiles.desde_dict({"nombre": "Viejo", "permiso": "pedido"}).voz == "tercero"
