@@ -118,14 +118,18 @@ class Publicacion:
 def armar_publicacion(
     clip: Path, pico: Pico, url: str, lineas: list[str] | None = None,
     streamer: str | None = None, juego: str | None = None, voz: str = "tercero",
+    mencion_x: str | None = None,
 ) -> Publicacion:
     meta = metadatos.armar(pico.tema, pico.etiqueta, url, int(pico.t),
-                           lineas=lineas, streamer=streamer, juego=juego, voz=voz)
+                           lineas=lineas, streamer=streamer, juego=juego, voz=voz,
+                           mencion_x=mencion_x)
     m = medir(clip)
     por_plataforma = {}
     for clave, p in PLATAFORMAS.items():
         etiquetas = meta.hashtags[: p.max_hashtags]
-        cuerpo = meta.descripcion + "\n\n" + " ".join("#" + h for h in etiquetas)
+        descripcion = (meta.descripcion_x if clave == "x" and meta.descripcion_x
+                       else meta.descripcion)
+        cuerpo = descripcion + "\n\n" + " ".join("#" + h for h in etiquetas)
         por_plataforma[clave] = {
             "nombre": p.nombre,
             "titulo": recortar_texto(meta.titulo, p.max_titulo),

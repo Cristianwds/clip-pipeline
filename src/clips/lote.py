@@ -512,7 +512,7 @@ def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
     h = hechos[0]
     pub = armar_publicacion(h.final, h.pico, vod["url"], lineas=h.lineas,
                             streamer=perfil.nombre or None, juego=perfil.juego or None,
-                            voz=perfil.voz)
+                            voz=perfil.voz, mencion_x=perfil.usuario_x or None)
     planificar([pub], desde=desde)
     escribir_textos([pub], carpeta)
     datos = asdict(pub)
