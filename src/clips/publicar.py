@@ -117,10 +117,10 @@ class Publicacion:
 
 def armar_publicacion(
     clip: Path, pico: Pico, url: str, lineas: list[str] | None = None,
-    streamer: str | None = None, juego: str | None = None,
+    streamer: str | None = None, juego: str | None = None, voz: str = "tercero",
 ) -> Publicacion:
     meta = metadatos.armar(pico.tema, pico.etiqueta, url, int(pico.t),
-                           lineas=lineas, streamer=streamer, juego=juego)
+                           lineas=lineas, streamer=streamer, juego=juego, voz=voz)
     m = medir(clip)
     por_plataforma = {}
     for clave, p in PLATAFORMAS.items():

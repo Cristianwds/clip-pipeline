@@ -30,6 +30,23 @@ HASHTAGS_POR_TIPO = {
 }
 HASHTAGS_BASE = ["clips", "stream", "twitch", "shorts"]
 
+# Quién habla en el post. Los textos nacieron para un canal de clips de terceros:
+# «el chat de AuronPlay no se ponía de acuerdo», «Clip del stream de AuronPlay»,
+# #clips. El modelo del proyecto terminó siendo otro, que el clip lo suba el propio
+# streamer a su cuenta, y ahí esos textos quedan hablando de él en tercera persona.
+#   tercero: un canal de clips hablando del streamer (lo que había)
+#   propia:  el streamer en su cuenta; no se nombra a sí mismo ni se da crédito
+VOCES = ("tercero", "propia")
+# En voz propia no va #clips, que es la marca de un canal de recortes, ni #twitch,
+# que se ponía aunque el directo fuera de YouTube.
+HASHTAGS_BASE_PROPIA = ["stream", "directo"]
+
+
+def _validar_voz(voz: str) -> str:
+    if voz not in VOCES:
+        raise ValueError(f"voz debe ser una de {', '.join(VOCES)}, no {voz!r}")
+    return voz
+
 # Palabras que no sirven como titulo aunque sean especificas del momento.
 RUIDO = {"xd", "xdd", "jaja", "jajaja", "ja", "lol", "lul", "kekw", "omg", "uh", "ah"}
 
@@ -129,17 +146,18 @@ def _forma_del_audio(mas_usada: str, grupo: list[Token], audio: list[str]) -> st
 
 def titular(
     tema: list[str], etiqueta: str = "", vocabulario_audio: set[str] | None = None,
-    streamer: str | None = None, max_palabras: int = 3,
+    streamer: str | None = None, max_palabras: int = 3, voz: str = "tercero",
 ) -> str:
     """Arma el título con las palabras que el chat repitió en ese momento."""
     return titular_desde(consolidar(parsear_tema(tema), vocabulario_audio),
-                         etiqueta, streamer, max_palabras)
+                         etiqueta, streamer, max_palabras, voz)
 
 
 def titular_desde(
     tokens: list[Token], etiqueta: str = "", streamer: str | None = None,
-    max_palabras: int = 3,
+    max_palabras: int = 3, voz: str = "tercero",
 ) -> str:
+    propia = _validar_voz(voz) == "propia"
     tokens = [t for t in tokens
               if sin_tildes(t.palabra) not in RUIDO and len(t.palabra) > 2]
     claves = [t.palabra for t in tokens[:max_palabras]]
@@ -147,10 +165,17 @@ def titular_desde(
         base = {"gracioso": "El momento más gracioso",
                 "épico": "El momentazo",
                 "tensión": "El momento más tenso"}.get(etiqueta, "El mejor momento")
+        if propia:
+            return f"{base} del directo"
         return f"{base} de {streamer}" if streamer else base
 
     nucleo = " vs ".join(claves[:2]) if len(claves) >= 2 else claves[0]
     titulo = f"{nucleo.capitalize()}: lo que pedía el chat"
+    if propia:
+        # «no se ponía de acuerdo» solo si de verdad había dos cosas en disputa
+        if len(claves) >= 2:
+            titulo = f"{nucleo.capitalize()}: el chat no se ponía de acuerdo"
+        return titulo
     if streamer:
         titulo = f"{nucleo.capitalize()} — el chat de {streamer} no se ponía de acuerdo"
     return titulo
@@ -233,11 +258,14 @@ def _recortar_colgantes(frase: str | None) -> str | None:
 
 
 def hashtags(etiqueta: str = "", streamer: str | None = None, juego: str | None = None,
-             tope: int = 8) -> list[str]:
+             tope: int = 8, voz: str = "tercero") -> list[str]:
+    base = HASHTAGS_BASE_PROPIA if _validar_voz(voz) == "propia" else HASHTAGS_BASE
     etiquetas = HASHTAGS_POR_TIPO.get(etiqueta, [])
+    # el nombre del streamer va también en voz propia: es su marca, y es el hashtag
+    # por el que lo busca su comunidad
     extra = [re.sub(r"[^a-z0-9]", "", sin_tildes(x)) for x in (streamer, juego) if x]
     vistos, salida = set(), []
-    for h in extra + etiquetas + HASHTAGS_BASE:
+    for h in extra + etiquetas + base:
         if h and h not in vistos:
             vistos.add(h)
             salida.append(h)
@@ -255,13 +283,14 @@ class Metadatos:
 def armar(
     tema: list[str], etiqueta: str, url_fuente: str, segundo: int,
     lineas: list[str] | None = None, streamer: str | None = None,
-    juego: str | None = None,
+    juego: str | None = None, voz: str = "tercero",
 ) -> Metadatos:
+    propia = _validar_voz(voz) == "propia"
     vocab = {w.strip(".,¿?¡!").lower() for l in (lineas or []) for w in l.split()}
     # se consolida una sola vez y se usa para las dos cosas: asi la cita se busca
     # con la ortografia corregida, que es la que aparece en la transcripcion
     tokens = consolidar(parsear_tema(tema), vocab)
-    titulo = titular_desde(tokens, etiqueta, streamer)
+    titulo = titular_desde(tokens, etiqueta, streamer, voz=voz)
     cita = elegir_cita(lineas or [], tokens)
 
     partes = []
@@ -269,11 +298,16 @@ def armar(
         partes.append(f"«{cita}»")
     # El credito no es decorativo: son clips de contenido de otra persona, y muchos
     # streamers piden atribucion y link a la fuente en sus reglas de canal.
-    if streamer:
-        partes.append(f"Clip del stream de {streamer}.")
-    partes.append(f"Fuente: {_con_tiempo(url_fuente, segundo)}")
+    # En su propia cuenta no hay a quién darle crédito, y el link deja de ser una
+    # atribución para ser una invitación a ver el directo.
+    if propia:
+        partes.append(f"El directo completo: {_con_tiempo(url_fuente, segundo)}")
+    else:
+        if streamer:
+            partes.append(f"Clip del stream de {streamer}.")
+        partes.append(f"Fuente: {_con_tiempo(url_fuente, segundo)}")
     return Metadatos(titulo=titulo, descripcion="\n\n".join(partes),
-                     hashtags=hashtags(etiqueta, streamer, juego), cita=cita)
+                     hashtags=hashtags(etiqueta, streamer, juego, voz=voz), cita=cita)
 
 
 def _con_tiempo(url: str, segundo: int) -> str:

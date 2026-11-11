@@ -357,7 +357,31 @@ function vistaClips(m) {
       <p class="tenue">Marcá picos como buenos en Revisión y aparecen acá para producirlos y publicarlos.</p></div>`;
     return;
   }
-  m.innerHTML = lista.map(({ v, p }) => {
+  // Una fila por directo con algo para mandar o ya mandado. La entrega es por
+  // directo y no por clip: es como el streamer reconoce lo que le llega.
+  const porVod = new Map();
+  for (const { v, p } of lista) {
+    if (!p.clip) continue;
+    const g = porVod.get(v.id) || { v, listos: 0, sinMirar: 0, paquetes: new Map() };
+    if (p.entregado) g.paquetes.set(p.entregado.paquete, p.entregado.fecha);
+    else if (p.control === "ok") g.listos++;
+    else g.sinMirar++;
+    porVod.set(v.id, g);
+  }
+  const entregas = [...porVod.values()].filter((g) => g.listos || g.paquetes.size).map((g) => {
+    const enCola = (S.trabajos.actual + S.trabajos.en_cola.join()).includes(`Armar entrega ${g.v.id.slice(-12)}`);
+    const zips = [...g.paquetes].map(([ruta, fecha]) =>
+      `<a class="boton chico" href="/clips/${ruta.split("/").map(encodeURIComponent).join("/")}" download>Bajar entrega del ${esc(fecha.slice(0, 10))} ↓</a>`).join(" ");
+    const boton = !g.listos ? "" : enCola ? '<span class="tenue">Armando…</span>'
+      : `<button class="principal chico" data-entregar="${esc(g.v.id)}">Armar entrega (${g.listos})</button>`;
+    return `<div class="fila-plat"><span class="nombre">${esc(g.v.streamer || "—")}</span>
+      <span class="tenue chica">${esc((g.v.titulo || g.v.url).slice(0, 60))}</span>
+      ${g.sinMirar && g.listos ? `<span class="tenue chica">sin visto bueno todavía: ${g.sinMirar}</span>` : ""}
+      ${boton} ${zips}</div>`;
+  }).join("");
+  const cabecera = !entregas ? "" : `<div class="tarjeta"><b>Entregas</b>
+    <p class="tenue chica">Un zip por directo con los clips que tienen el visto bueno, el texto de cada uno y un LEEME. No manda nada: lo bajás y se lo pasás vos.</p>${entregas}</div>`;
+  m.innerHTML = cabecera + lista.map(({ v, p }) => {
     const pub = p.publicacion, perfil = perfilDe(v.streamer);
     const permiso = perfil ? perfil.permiso : "sin pedir";
     const aviso = permiso === "concedido" ? "" :
@@ -393,10 +417,34 @@ function vistaClips(m) {
       <div>${aviso}
         <b style="font-size:16px">${esc(pub.titulo)}</b>
         <div class="chica tenue">${esc(v.streamer || "—")} · ${esc(p.momento)} · ${Math.round(pub.medidas.segundos)} s · ${pub.medidas.mb.toFixed(1)} MB
-          · variante ${esc(pub.variante || "—")}${pub.gancho ? " · gancho «" + esc(pub.gancho) + "»" : ""}</div>
+          · variante ${esc(pub.variante || "—")}${pub.gancho ? " · gancho «" + esc(pub.gancho) + "»" : ""}${pub.voz === "propia" ? " · textos en voz propia" : ""}</div>
         ${pub.cita ? `<p class="chica">«${esc(pub.cita)}»</p>` : ""}
+        ${controlDe(v, p)}
         ${plats}</div></div>`;
   }).join("");
+}
+
+// El control es sobre el clip terminado: el veredicto de Revisión se puso mirando el
+// VOD, antes de que existiera el archivo.
+function controlDe(v, p) {
+  const datos = `data-id="${esc(v.id)}" data-t="${p.t}"`;
+  const enCola = (S.trabajos.actual + S.trabajos.en_cola.join()).includes(`${v.id.slice(-12)} @ ${Math.floor(p.t)}s`);
+  if (enCola) return '<div class="aviso">Rehaciendo el clip…</div>';
+  if (p.entregado) return `<p class="chica"><span class="sello bueno">entregado</span> el ${esc(p.entregado.fecha.replace("T", " "))}</p>`;
+  if (p.control === "ok") return `<p class="chica" ${datos}><span class="sello bueno">clip ok</span>
+    <button class="chico" data-control="">Deshacer</button></p>`;
+  const aj = p.ajuste || {};
+  const variantes = ['<option value="">misma variante</option>']
+    .concat(S.opciones.variantes.map((n) => `<option${n === aj.variante ? " selected" : ""}>${esc(n)}</option>`)).join("");
+  const max = S.opciones.corrimiento_maximo;
+  return `<div class="control" ${datos} style="margin:8px 0">
+    <div class="chica tenue">¿El clip salió bien? Miralo entero, con sonido y en mudo.${p.nota_control ? " Nota anterior: " + esc(p.nota_control) : ""}</div>
+    <div class="fila-plat">
+      <button class="bien chico" data-control="ok">Clip ok</button>
+      <select class="variante" aria-label="Variante para rehacer">${variantes}</select>
+      <input class="corrimiento vistas" type="number" min="${-max}" max="${max}" step="1" value="${aj.corrimiento || ""}" placeholder="inicio ±s" title="Segundos que se corre el corte. Negativo: arranca antes." aria-label="Correr el inicio, en segundos">
+      <input class="url nota" placeholder="qué está mal" value="" aria-label="Qué está mal en el clip">
+      <button class="duda chico" data-rehacer>Rehacer</button></div></div>`;
 }
 
 // ---------- streamers
@@ -440,6 +488,7 @@ function vistaStreamers(m) {
       <div><label for="p-facecam">Facecam: X,Y,ANCHO,ALTO</label><input id="p-facecam" name="facecam" placeholder="4,268,320,188" style="width:100%"></div>
       <div><label for="p-idioma">Idioma (vacío = detectar)</label><input id="p-idioma" name="idioma" placeholder="es" style="width:100%"></div>
       <div><label for="p-permiso">Permiso para publicar clips</label><select id="p-permiso" name="permiso" style="width:100%">${op(S.opciones.permisos)}</select></div>
+      <div><label for="p-voz" title="propia: los clips los sube el streamer a su cuenta, y los textos no lo nombran ni le dan crédito. tercero: van a un canal de clips.">Cuenta donde se suben</label><select id="p-voz" name="voz" style="width:100%">${op(S.opciones.voces)}</select></div>
       <div class="todo"><label for="p-canales">Canales donde salen sus VODs (uno por línea)</label>
         <textarea id="p-canales" name="canales" rows="2" style="width:100%" placeholder="https://www.twitch.tv/CANAL/videos?filter=archives"></textarea></div>
       <div class="todo"><label for="p-notas">Notas</label><input id="p-notas" name="notas" style="width:100%"></div>
@@ -460,6 +509,18 @@ document.addEventListener("click", async (e) => {
     catch { toast("El navegador no dejó copiar"); }
     return;
   }
+  if (b.dataset.control !== undefined) {
+    const f = b.closest("[data-id]");
+    if (await post("/api/control", { id: f.dataset.id, t: Number(f.dataset.t), control: b.dataset.control })) toast(b.dataset.control ? "Clip aprobado" : "Visto bueno deshecho");
+    return;
+  }
+  if (b.dataset.rehacer !== undefined) {
+    const f = b.closest("[data-id]");
+    if (await post("/api/rehacer", { id: f.dataset.id, t: Number(f.dataset.t), variante: $(".variante", f).value,
+      corrimiento: Number($(".corrimiento", f).value || 0), nota: $(".nota", f).value })) toast("Clip en cola para rehacer");
+    return;
+  }
+  if (b.dataset.entregar) { if (await post("/api/entregar", { id: b.dataset.entregar })) toast("Entrega en cola"); return; }
   if (b.dataset.publicado !== undefined) {
     const f = b.closest(".fila-plat");
     if (await post("/api/publicado", { id: f.dataset.id, t: Number(f.dataset.t), plataforma: f.dataset.plat,
@@ -483,7 +544,7 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.editar) {
     const p = perfilDe(b.dataset.editar), f = $("#f-perfil");
-    for (const k of ["nombre", "juego", "formato", "idioma", "permiso", "notas"]) f.elements[k].value = p[k] || "";
+    for (const k of ["nombre", "juego", "formato", "idioma", "permiso", "notas", "voz"]) f.elements[k].value = p[k] || "";
     f.elements.facecam.value = p.facecam ? p.facecam.join(",") : "";
     f.elements.canales.value = p.canales.join("\n");
     f.scrollIntoView({ behavior: "smooth" }); f.elements.nombre.focus();
