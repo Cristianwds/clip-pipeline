@@ -465,8 +465,11 @@ function vistaStreamers(m) {
       ${filas || '<tr><td colspan="7" class="tenue">Sin perfiles todavía.</td></tr>'}</table></div>
     ${medicion ? `<h2>Facecam de ${esc(medicion.nombre)}</h2>
     <div class="tarjeta" id="medidor">
-      <p class="chica tenue" style="margin-top:0">Arrastrá un rectángulo sobre la cámara. Si en este cuadro no se ve, probá otro segundo del VOD.</p>
+      <p class="chica tenue" style="margin-top:0">Arrastrá un rectángulo sobre la cámara. Si en este cuadro no se ve, probá otro segundo del VOD. Si en este directo la cámara está en otro lugar que de costumbre, guardala solo para este VOD.</p>
       <form class="linea" id="f-cuadro" style="margin-bottom:10px">
+        <label for="m-vod" style="margin:0">VOD</label>
+        <select id="m-vod" style="max-width:320px">${vodsDe(medicion.nombre).map((x) =>
+          `<option value="${esc(x.id)}"${x.id === medicion.id ? " selected" : ""}>${esc((x.titulo || x.url).slice(0, 50))}${x.facecam ? " · facecam propia" : ""}</option>`).join("")}</select>
         <label for="m-t" style="margin:0">Segundo del VOD</label>
         <input id="m-t" name="t" type="number" min="0" value="${medicion.t}" style="width:110px">
         <button>Ver ese cuadro</button>
@@ -476,7 +479,9 @@ function vistaStreamers(m) {
       <p id="estado-cuadro" class="chica tenue">Trayendo el cuadro desde la plataforma, tarda unos segundos…</p>
       <div class="botonera" style="align-items:center">
         <span>Facecam: <code id="medida">${medicion.caja ? medicion.caja.join(",") : "—"}</code></span>
-        <button class="principal" data-guardar-medida ${medicion.caja ? "" : "disabled"}>Guardar y usar formato dividido</button>
+        <button class="principal" data-guardar-medida ${medicion.caja ? "" : "disabled"}>Guardar para el streamer y usar dividido</button>
+        <button data-guardar-medida-vod ${medicion.caja ? "" : "disabled"}>Guardar solo para este VOD</button>
+        ${(S.vods.find((x) => x.id === medicion.id) || {}).facecam ? '<button data-quitar-medida-vod>Quitar la de este VOD</button>' : ""}
         <button data-cerrar-medida>Cerrar</button>
       </div>
     </div>` : ""}
@@ -495,6 +500,13 @@ function vistaStreamers(m) {
       <div class="todo"><button class="principal">Guardar perfil</button>
         <span class="tenue chica" style="margin-left:8px">Guardar con un nombre que ya existe lo reemplaza.</span></div>
     </form>`;
+}
+
+const vodsDe = (nombre) => S.vods.filter((x) => (x.streamer || "").toLowerCase() === nombre.toLowerCase());
+// Se arranca en el mejor pico del VOD: es un cuadro que seguro se va a cortar.
+function medicionDe(nombre, v) {
+  const pico = v.picos.find((x) => x.puesto === 1), p = perfilDe(nombre);
+  return { nombre, id: v.id, t: Math.round(pico ? pico.t : 1800), caja: v.facecam || (p && p.facecam) || null };
 }
 
 // ---------- eventos
@@ -528,12 +540,17 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (b.dataset.medir) {
-    const nombre = b.dataset.medir, p = perfilDe(nombre);
-    const v = S.vods.find((x) => (x.streamer || "").toLowerCase() === nombre.toLowerCase());
+    const nombre = b.dataset.medir;
+    const v = vodsDe(nombre)[0];
     if (!v) { toast(`Agregá primero un VOD de ${nombre} en el Tablero`); return; }
-    const pico = v.picos.find((x) => x.puesto === 1);
-    medicion = { nombre, id: v.id, t: Math.round(pico ? pico.t : 1800), caja: p.facecam || null };
+    medicion = medicionDe(nombre, v);
     pintar(); $("#medidor").scrollIntoView({ behavior: "smooth" }); return;
+  }
+  if (b.dataset.guardarMedidaVod !== undefined || b.dataset.quitarMedidaVod !== undefined) {
+    const m = medicion, quitar = b.dataset.quitarMedidaVod !== undefined; medicion = null;
+    if (await post("/api/facecam", { id: m.id, facecam: quitar ? "" : m.caja.join(",") }))
+      toast(quitar ? "Este VOD vuelve a usar la facecam del streamer" : "Facecam guardada solo para este VOD");
+    return;
   }
   if (b.dataset.cerrarMedida !== undefined) { medicion = null; pintar(); return; }
   if (b.dataset.guardarMedida !== undefined) {
@@ -595,7 +612,7 @@ document.addEventListener("pointerup", () => {
   arrastre = null;
   // un click sin arrastrar deja una caja de ancho cero, que no es una facecam
   if (medicion.caja && (medicion.caja[2] < 8 || medicion.caja[3] < 8)) { medicion.caja = null; $("#medida").textContent = "—"; dibujarMarco(); }
-  $("[data-guardar-medida]").disabled = !medicion.caja;
+  $("[data-guardar-medida]").disabled = $("[data-guardar-medida-vod]").disabled = !medicion.caja;
 });
 document.addEventListener("load", (e) => {
   if (e.target.id !== "cuadro") return;
@@ -608,6 +625,11 @@ document.addEventListener("error", (e) => {
 window.addEventListener("resize", dibujarMarco);
 
 document.addEventListener("change", (e) => {
+  if (e.target.id === "m-vod" && medicion) {
+    const v = S.vods.find((x) => x.id === e.target.value);
+    if (v) { medicion = medicionDe(medicion.nombre, v); pintar(); }
+    return;
+  }
   if (e.target.id === "solo-top") { soloTop = e.target.checked; claveReproductor = ""; pintarTrabajo(); pintar(); }
 });
 document.addEventListener("keydown", (e) => {

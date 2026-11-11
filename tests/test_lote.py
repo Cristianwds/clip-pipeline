@@ -445,3 +445,68 @@ def test_el_panel_rechaza_marcar_publicado_sin_permiso(tmp_path, monkeypatch):
                         lambda ruta=None: [perfiles.Perfil("Alguien", permiso="concedido")])
     panel.accion("/api/publicado", pedido)
     assert "tiktok" in lote.cargar(ruta)["vods"][0]["picos"][0]["publicado"]
+
+
+# ---------------------------------------------------------------- facecam por VOD
+
+def test_la_facecam_del_vod_manda_sobre_la_del_perfil():
+    _, vod = _estado_con("bueno")
+    perfil = perfiles.Perfil("Alguien", formato="dividido", facecam=[4, 268, 320, 188])
+    assert lote.encuadre(vod, perfil) == ("dividido", [4, 268, 320, 188])
+    lote.poner_facecam(vod, "900,20,360,200")
+    assert lote.encuadre(vod, perfil) == ("dividido", [900, 20, 360, 200])
+
+
+def test_quitar_la_facecam_del_vod_vuelve_a_la_del_perfil():
+    _, vod = _estado_con("bueno")
+    perfil = perfiles.Perfil("Alguien", formato="dividido", facecam=[4, 268, 320, 188])
+    lote.poner_facecam(vod, [900, 20, 360, 200])
+    lote.poner_facecam(vod, "")
+    assert vod["facecam"] is None
+    assert lote.encuadre(vod, perfil) == ("dividido", [4, 268, 320, 188])
+
+
+def test_un_perfil_sin_facecam_puede_ir_dividido_si_el_vod_tiene_la_suya():
+    _, vod = _estado_con("bueno")
+    perfil = perfiles.Perfil("Alguien", formato="dividido")
+    assert lote.encuadre(vod, perfil) == ("desenfoque", None)      # sin ninguna, cae
+    lote.poner_facecam(vod, "10,10,300,200")
+    assert lote.encuadre(vod, perfil)[0] == "dividido"
+
+
+def test_la_facecam_del_vod_no_le_cambia_el_formato_al_perfil():
+    # medir una cámara no es pedir el modo dividido: eso lo decide el perfil
+    _, vod = _estado_con("bueno")
+    lote.poner_facecam(vod, "10,10,300,200")
+    assert lote.encuadre(vod, perfiles.Perfil("Alguien", formato="desenfoque"))[0] == "desenfoque"
+
+
+def test_una_facecam_que_no_es_un_rectangulo_no_se_guarda():
+    _, vod = _estado_con("bueno")
+    with pytest.raises(ValueError):
+        lote.poner_facecam(vod, "10,10,300")
+    assert "facecam" not in vod
+
+
+def test_reanalizar_no_pierde_la_facecam_del_vod():
+    _, vod = _estado_con("bueno")
+    lote.poner_facecam(vod, "10,10,300,200")
+    lote.aplicar_analisis(vod, {"picos": [], "mensajes": 10, "duracion": 100.0, "umbral": 4.2})
+    assert vod["facecam"] == [10, 10, 300, 200]
+
+
+def test_producir_usa_el_encuadre_del_vod(tmp_path, monkeypatch):
+    from clips import pipeline, publicar
+    _, vod = _estado_con("bueno")
+    lote.poner_facecam(vod, "900,20,360,200")
+    visto = {}
+
+    def producir(url, picos, **kw):
+        visto.update(kw)
+        return []                                   # corta acá: alcanza con ver qué se pidió
+
+    monkeypatch.setattr(pipeline, "producir", producir)
+    perfil = perfiles.Perfil("Alguien", formato="dividido", facecam=[4, 268, 320, 188])
+    with pytest.raises(RuntimeError):
+        lote.producir_pico(vod, vod["picos"][0], perfil, log=lambda _: None)
+    assert (visto["formato"], visto["facecam"]) == ("dividido", (900, 20, 360, 200))

@@ -337,6 +337,32 @@ def marcar_entregado(vod: dict, tiempos: list[float], paquete: str,
     return marcados
 
 
+def poner_facecam(vod: dict, facecam: str | list[int] | None) -> dict:
+    """La facecam de este VOD en particular. Vacío la quita y vuelve a valer la del
+    perfil."""
+    crudo = ",".join(map(str, facecam)) if isinstance(facecam, list) else facecam
+    vod["facecam"] = mod_perfiles.parsear_facecam(crudo)
+    return vod
+
+
+def encuadre(vod: dict, perfil: mod_perfiles.Perfil) -> tuple[str, list[int] | None]:
+    """(formato, facecam) con los que se produce un clip de este VOD.
+
+    La facecam era una sola por streamer, y no es tan constante: cambia de lugar y
+    de tamaño según el juego o la escena. Con la del perfil mal ubicada, el modo
+    dividido recorta un pedazo de juego arriba y deja la cámara metida en la banda
+    de abajo. La del VOD manda; si no tiene, vale la del perfil.
+
+    Como en `Perfil.formato_efectivo`, el dividido sin ninguna facecam cae a
+    desenfoque en vez de fallar a mitad de una producción.
+    """
+    facecam = vod.get("facecam") or perfil.facecam
+    formato = perfil.formato
+    if formato == "dividido" and not facecam:
+        formato = "desenfoque"
+    return formato, (list(facecam) if facecam else None)
+
+
 def exigir_permiso(vod: dict, perfil: mod_perfiles.Perfil | None) -> None:
     """Levanta ValueError si no hay permiso concedido para publicar clips de este VOD.
 
@@ -475,10 +501,10 @@ def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
     carpeta = SALIDA / vod["id"]
     a_producir = dict_a_pico(pico)
     a_producir.t += corrimiento
+    formato, facecam = encuadre(vod, perfil)
     hechos = pipeline.producir(
         vod["url"], [a_producir], carpeta=carpeta, variante=variante or None,
-        formato=perfil.formato_efectivo,
-        facecam=tuple(perfil.facecam) if perfil.facecam else None,
+        formato=formato, facecam=tuple(facecam) if facecam else None,
         subtitulos=perfil.subtitulos, modelo=perfil.modelo, idioma=perfil.idioma or None,
         primero=max(pico["puesto"] - 1, 0), log=log)
     if not hechos:
