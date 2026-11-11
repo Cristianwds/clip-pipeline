@@ -339,3 +339,109 @@ def test_el_cuadro_para_medir_se_pide_igual_que_el_clip():
     for fn in (cortar.cortar, cortar.cuadro):
         assert "_formato(altura_max)" in inspect.getsource(fn)
         assert inspect.signature(fn).parameters["altura_max"].default == 720
+
+
+# ---------------------------------------------------------------- respaldos
+
+def _nombres(carpeta):
+    return sorted(q.name for q in carpeta.iterdir()) if carpeta.exists() else []
+
+
+def test_la_primera_escritura_del_dia_guarda_el_estado_anterior(tmp_path):
+    ruta = tmp_path / "lote.json"
+    ayer, _ = _estado_con("bueno")
+    lote.guardar(ayer, ruta, ahora=datetime(2026, 11, 10, 22, 0))
+    assert _nombres(tmp_path / "respaldos") == []        # no había nada que cuidar
+
+    hoy, _ = _estado_con("bueno", "malo")
+    lote.guardar(hoy, ruta, ahora=datetime(2026, 11, 11, 9, 0))
+    lote.guardar(hoy, ruta, ahora=datetime(2026, 11, 11, 9, 5))
+    assert _nombres(tmp_path / "respaldos") == ["lote_2026-11-11.json"]
+    # la copia es lo que había ANTES de tocar nada hoy, no lo recién escrito
+    copia = lote.cargar(tmp_path / "respaldos" / "lote_2026-11-11.json")
+    assert lote.contar_veredictos(copia) == 1
+
+
+def test_perder_veredictos_deja_una_copia_aunque_ya_haya_una_de_hoy(tmp_path):
+    # el caso que la copia diaria no cubre: se revisa a la mañana y un bug pisa todo
+    # a la tarde. La diaria es de antes de la revisión.
+    ruta, dia = tmp_path / "lote.json", datetime(2026, 11, 11, 9, 0)
+    lote.guardar(lote.nuevo_estado(), ruta, ahora=dia)
+    revisado, _ = _estado_con("bueno", "malo", "dudoso")
+    lote.guardar(revisado, ruta, ahora=dia.replace(hour=10))
+    pisado, _ = _estado_con("", "", "")
+    lote.guardar(pisado, ruta, ahora=dia.replace(hour=17))
+
+    perdidas = [n for n in _nombres(tmp_path / "respaldos") if n.startswith("perdida_")]
+    assert perdidas == ["perdida_2026-11-11_170000_3a0.json"]
+    assert lote.contar_veredictos(lote.cargar(tmp_path / "respaldos" / perdidas[0])) == 3
+
+
+def test_sumar_veredictos_no_genera_copias_de_perdida(tmp_path):
+    ruta, dia = tmp_path / "lote.json", datetime(2026, 11, 11, 9, 0)
+    for veredictos in [("",), ("bueno",), ("bueno",)]:
+        estado, _ = _estado_con(*veredictos)
+        lote.guardar(estado, ruta, ahora=dia)
+    assert not [n for n in _nombres(tmp_path / "respaldos") if n.startswith("perdida_")]
+
+
+def test_se_conservan_los_ultimos_dias_y_nunca_se_borra_una_perdida():
+    nombres = [f"lote_2026-11-{d:02d}.json" for d in range(1, 21)]
+    nombres += ["perdida_2026-10-01_120000_45a0.json", "otra_cosa.txt"]
+    sobran = lote.diarios_a_borrar(nombres, conservar=14)
+    assert sobran == [f"lote_2026-11-{d:02d}.json" for d in range(1, 7)]
+
+
+def test_un_estado_roto_en_disco_no_impide_guardar(tmp_path):
+    ruta = tmp_path / "lote.json"
+    ruta.write_text("{esto no es json", encoding="utf-8")
+    estado, _ = _estado_con("bueno")
+    lote.guardar(estado, ruta, ahora=datetime(2026, 11, 11))
+    assert lote.contar_veredictos(lote.cargar(ruta)) == 1
+    assert _nombres(tmp_path / "respaldos") == ["lote_2026-11-11.json"]   # el roto, por las dudas
+
+
+def test_el_estado_real_y_uno_de_prueba_no_comparten_respaldos(tmp_path):
+    assert lote.carpeta_de_respaldos(lote.ESTADO) == lote.RESPALDOS
+    assert lote.carpeta_de_respaldos(tmp_path / "lote.json") == tmp_path / "respaldos"
+
+
+# ---------------------------------------------------------------- permiso
+
+@pytest.mark.parametrize("permiso", ["sin pedir", "pedido", "negado"])
+def test_sin_permiso_concedido_no_se_registra_una_publicacion(permiso):
+    _, vod = _estado_con("bueno")
+    with pytest.raises(ValueError, match=permiso):
+        lote.exigir_permiso(vod, perfiles.Perfil("Alguien", permiso=permiso))
+
+
+def test_un_vod_sin_perfil_no_tiene_permiso():
+    _, vod = _estado_con("bueno")
+    with pytest.raises(ValueError, match="no tiene perfil"):
+        lote.exigir_permiso(vod, None)
+
+
+def test_con_permiso_concedido_pasa():
+    _, vod = _estado_con("bueno")
+    lote.exigir_permiso(vod, perfiles.Perfil("Alguien", permiso="concedido"))
+
+
+def test_el_panel_rechaza_marcar_publicado_sin_permiso(tmp_path, monkeypatch):
+    # el chequeo tiene que estar en la acción y no solo en el botón deshabilitado
+    ruta = tmp_path / "lote.json"
+    estado, vod = _estado_con("bueno")
+    vod["picos"][0]["clip"] = "v/pico.mp4"
+    lote.guardar(estado, ruta)
+    monkeypatch.setattr(lote, "ESTADO", ruta)
+    pedido = {"id": vod["id"], "t": 100.0, "plataforma": "tiktok", "url": "https://tiktok.com/x"}
+
+    monkeypatch.setattr(panel.mod_perfiles, "cargar",
+                        lambda ruta=None: [perfiles.Perfil("Alguien", permiso="pedido")])
+    with pytest.raises(ValueError, match="pedido"):
+        panel.accion("/api/publicado", pedido)
+    assert lote.cargar(ruta)["vods"][0]["picos"][0]["publicado"] == {}
+
+    monkeypatch.setattr(panel.mod_perfiles, "cargar",
+                        lambda ruta=None: [perfiles.Perfil("Alguien", permiso="concedido")])
+    panel.accion("/api/publicado", pedido)
+    assert "tiktok" in lote.cargar(ruta)["vods"][0]["picos"][0]["publicado"]

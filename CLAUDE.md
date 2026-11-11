@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 148 tests, corren en ~1,5 s
+.venv/bin/python -m pytest tests/ -q          # 170 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -41,7 +41,7 @@ de que la lógica está mezclada con la E/S y conviene separarla.
 | `metadatos.py` | Título, gancho, cita y hashtags desde el chat + el audio | Cómo se arman los textos del post |
 | `publicar.py` | Valida cada clip por plataforma (TikTok, Reels, Shorts, X), escribe el manifiesto y un .txt por plataforma listo para pegar | Límites de plataforma, horarios, payload de Postiz |
 | `cuentas.py` | Registro de cuentas y estado de monetización. CLI propia | Agregar una plataforma, actualizar qué paga cada una |
-| `pipeline.py` | Del pico al clip terminado: corte, reencuadre, subtítulos. Un pico a la vez | El orden de las etapas, qué pasa cuando una falla |
+| `pipeline.py` | Del pico al clip terminado: corte, reencuadre, subtítulos. Un pico a la vez. Se testea reemplazando las tres etapas (`tests/test_pipeline.py`) | El orden de las etapas, qué pasa cuando una falla |
 | `perfiles.py` | Perfil por streamer: canales, facecam, formato, permiso. CLI propia | Agregar un dato que es constante por streamer |
 | `lote.py` | La cola de VODs y su estado (`datos/lote.json`): picos, veredictos, clips, publicaciones. CLI propia | Qué se recuerda de cada VOD, cómo se descubren VODs nuevos |
 | `revision.py` | Precisión del detector contra los veredictos. Solo funciones puras | Qué cuenta como acierto, por qué cortes se abre la medición |
@@ -114,6 +114,14 @@ módulo y en la nota del vault.
   y que el panel no tenga el estado tomado durante un análisis de varios minutos.
 - **Reanalizar conserva los veredictos** (`lote.fusionar_picos`). Son el único dato del
   proyecto que no se regenera: cuestan un humano mirando el video.
+- **El estado se respalda solo al guardarlo** (`lote.respaldar`), en
+  `~/.config/clip-pipeline/respaldos/`, afuera del repo. Una copia por día y, aparte,
+  una cada vez que el estado nuevo trae menos veredictos que el de disco: la diaria no
+  cubre un bug que pise a la tarde lo revisado a la mañana. Las `perdida_*` no se
+  borran nunca.
+- **Sin permiso concedido no se registra una publicación** (`lote.exigir_permiso`).
+  Producir sí se puede: los clips hechos son lo que se manda para pedir el permiso.
+  El chequeo está en la acción del panel, no solo en el botón.
 - **«Dudoso» cuenta como error y la precisión va con intervalo de Wilson**
   (`revision.py`). Con 50 veredictos como mucho, un porcentaje suelto invita a creerle
   de más.
@@ -149,6 +157,9 @@ módulo y en la nota del vault.
 - **TwitchDownloaderCLI no escribe nada hasta terminar.** El archivo de salida queda en
   0 bytes durante toda la descarga: no es señal de que esté colgado. Hay un tope de
   tiempo en `chat.TIEMPO_MAXIMO`.
+- **Un test que guarde el estado en la ruta por defecto escribiría respaldos en la
+  config real.** `tests/conftest.py` redirige `lote.RESPALDOS` a una carpeta temporal
+  para todos; no sacarlo.
 - **El chat escribe mal y el audio no.** `metadatos.consolidar` corrige la ortografía
   cruzando los dos, con un límite: 2 ediciones si el chat escribió la palabra de varias
   formas, 1 sola si fue consistente. Sin ese límite convertía `malas` en `mata`.

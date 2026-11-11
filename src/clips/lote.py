@@ -19,7 +19,9 @@ import argparse
 import contextlib
 import fcntl
 import json
+import os
 import re
+import shutil
 import subprocess
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -31,6 +33,11 @@ from .cortar import SALIDA
 from .picos import Pico
 
 ESTADO = chat.CACHE / "lote.json"
+# Los respaldos van afuera del repo a propósito: `datos/` está ignorado por git, así
+# que un `git clean -fdx` o borrar la carpeta para liberar disco se lleva el estado.
+RESPALDOS = Path(os.environ.get(
+    "CLIP_PIPELINE_RESPALDOS", Path.home() / ".config/clip-pipeline/respaldos"))
+RESPALDOS_DIARIOS = 14   # cuántos días de copias se conservan
 TOP = 10                 # picos que se guardan por VOD
 DURACION_MINIMA = 1200   # un "VOD" de menos de 20 min es un clip o un resubido
 
@@ -83,9 +90,73 @@ def cargar(ruta: Path | None = None) -> dict:
     return json.loads(ruta.read_text(encoding="utf-8"))
 
 
-def guardar(estado: dict, ruta: Path | None = None) -> Path:
+def contar_veredictos(estado: dict) -> int:
+    return sum(1 for v in estado.get("vods", []) for p in v.get("picos", [])
+               if p.get("veredicto"))
+
+
+def diarios_a_borrar(nombres: list[str], conservar: int = RESPALDOS_DIARIOS) -> list[str]:
+    """De las copias diarias, las que sobran. Las `perdida_*` no se tocan nunca: cada
+    una es el estado de justo antes de que desaparecieran veredictos."""
+    diarios = sorted(n for n in nombres if re.fullmatch(r"lote_\d{4}-\d{2}-\d{2}\.json", n))
+    return diarios[:-conservar] if conservar > 0 else diarios
+
+
+def carpeta_de_respaldos(ruta: Path) -> Path:
+    """El estado real se respalda en `RESPALDOS`; cualquier otro (una copia de
+    prueba, el de un test), al lado suyo, para no mezclarlo con el de verdad."""
+    return RESPALDOS if ruta == ESTADO else ruta.parent / "respaldos"
+
+
+def respaldar(ruta: Path, estado_nuevo: dict, ahora: datetime | None = None,
+              carpeta: Path | None = None) -> list[Path]:
+    """Copia el archivo que está por pisarse, si hace falta. Devuelve lo que copió.
+
+    Los veredictos son lo único del proyecto que no se regenera y vivían en una sola
+    copia. Se guardan dos cosas distintas:
+
+    - una copia por día, tomada en la primera escritura del día: es el estado como
+      quedó la última vez que se trabajó. Sirve contra el disco o un borrado.
+    - una copia cada vez que el estado nuevo tiene **menos** veredictos que el que
+      está en disco. La diaria no alcanza para esto: si un bug pisa los veredictos a
+      la tarde, la copia de ese día es de antes de la sesión de revisión de la
+      mañana. Deshacer un veredicto a mano también dispara una copia; es barato y
+      preferible a adivinar cuándo una pérdida es intencional.
+    """
+    if not ruta.exists():
+        return []
+    ahora = ahora or datetime.now()
+    carpeta = carpeta or carpeta_de_respaldos(ruta)
+    hechos: list[Path] = []
+    diaria = carpeta / f"lote_{ahora:%Y-%m-%d}.json"
+    if not diaria.exists():
+        carpeta.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ruta, diaria)
+        hechos.append(diaria)
+        for nombre in diarios_a_borrar([q.name for q in carpeta.iterdir()]):
+            (carpeta / nombre).unlink()
+    try:
+        antes = contar_veredictos(json.loads(ruta.read_text(encoding="utf-8")))
+    except (ValueError, AttributeError):
+        antes = 0      # un archivo roto ya quedó en la copia diaria
+    despues = contar_veredictos(estado_nuevo)
+    if despues < antes:
+        carpeta.mkdir(parents=True, exist_ok=True)
+        perdida = carpeta / f"perdida_{ahora:%Y-%m-%d_%H%M%S}_{antes}a{despues}.json"
+        shutil.copy2(ruta, perdida)
+        hechos.append(perdida)
+    return hechos
+
+
+def guardar(estado: dict, ruta: Path | None = None, ahora: datetime | None = None) -> Path:
     ruta = ruta or ESTADO
     ruta.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        respaldar(ruta, estado, ahora)
+    except OSError as e:
+        # no poder respaldar no puede impedir guardar: se perdería el veredicto
+        # recién puesto, que es justo lo que el respaldo quiere cuidar
+        print(f"  aviso: no se pudo respaldar el estado ({e})")
     # se escribe aparte y se renombra: si el proceso muere a mitad de la escritura,
     # el archivo que queda es el anterior entero y no uno truncado. Acá adentro
     # están los veredictos, que son lo único del proyecto que no se puede regenerar.
@@ -211,6 +282,23 @@ def poner_veredicto(vod: dict, t: float, veredicto: str, nota: str | None = None
     if nota is not None:
         pico["nota"] = nota.strip()
     return pico
+
+
+def exigir_permiso(vod: dict, perfil: mod_perfiles.Perfil | None) -> None:
+    """Levanta ValueError si no hay permiso concedido para publicar clips de este VOD.
+
+    Producir no pasa por acá: hacen falta clips ya hechos para pedir el permiso (son
+    lo que se le manda al streamer). Lo que no se puede sin permiso es registrar una
+    publicación. Un VOD sin perfil cuenta como «sin pedir»: el permiso es de alguien.
+    """
+    if perfil is not None and perfil.puede_publicar:
+        return
+    quien = vod.get("streamer") or "este VOD"
+    if perfil is None:
+        raise ValueError(f"{quien} no tiene perfil, así que no hay permiso anotado: "
+                         "cargalo en la pestaña Streamers")
+    raise ValueError(f"el permiso de {perfil.nombre} está «{perfil.permiso}»: tiene que "
+                     "estar «concedido» para registrar una publicación")
 
 
 def marcar_publicado(vod: dict, t: float, plataforma: str, url: str = "",

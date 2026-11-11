@@ -57,6 +57,7 @@ button, .boton { font: inherit; font-size: 14px; border: 1px solid var(--borde);
   color: var(--texto); border-radius: 8px; padding: 6px 12px; cursor: pointer; text-decoration: none;
   display: inline-block; }
 button:hover, .boton:hover { border-color: var(--tenue); }
+button:disabled { opacity: .45; cursor: not-allowed; }
 button.principal { background: var(--acento); border-color: var(--acento); color: var(--acento-texto); font-weight: 600; }
 button.bien { border-color: var(--bien); color: var(--bien); }
 button.duda { border-color: var(--duda); color: var(--duda); }
@@ -360,7 +361,8 @@ function vistaClips(m) {
     const pub = p.publicacion, perfil = perfilDe(v.streamer);
     const permiso = perfil ? perfil.permiso : "sin pedir";
     const aviso = permiso === "concedido" ? "" :
-      `<div class="aviso">Permiso de ${esc(v.streamer || "este streamer")}: <b>${esc(permiso)}</b>. Conviene tenerlo antes de publicar.</div>`;
+      `<div class="aviso">Permiso de ${esc(v.streamer || "este streamer")}: <b>${esc(permiso)}</b>. Hasta que esté concedido no se puede registrar una publicación (se cambia en Streamers).</div>`;
+    const sinPermiso = permiso === "concedido" ? "" : " disabled title=\"Falta el permiso del streamer\"";
     if (!p.clip) {
       const enCola = (S.trabajos.actual + S.trabajos.en_cola.join()).includes(`${v.id.slice(-12)} @ ${Math.floor(p.t)}s`);
       return `<div class="tarjeta clip"><div class="hueco">Sin producir</div><div>
@@ -383,7 +385,7 @@ function vistaClips(m) {
         <a class="boton chico" href="${esc(S.plataformas[k].subida)}" target="_blank" rel="noopener">Abrir subida ↗</a>
         <input class="url" placeholder="URL del post publicado" value="${esc(hecho?.url || "")}" aria-label="URL del post en ${esc(d.nombre)}">
         <input class="vistas" type="number" min="0" placeholder="vistas" value="${esc(hecho?.vistas ?? "")}" aria-label="Vistas en ${esc(d.nombre)}">
-        <button class="chico" data-publicado>${hecho ? "Actualizar" : "Marcar publicado"}</button></div>`;
+        <button class="chico" data-publicado${sinPermiso}>${hecho ? "Actualizar" : "Marcar publicado"}</button></div>`;
     }).join("");
     return `<div class="tarjeta clip">
       <div><video src="${esc(src)}" controls preload="metadata"></video>

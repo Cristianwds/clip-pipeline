@@ -275,8 +275,15 @@ def accion(ruta: str, d: dict) -> dict:
             raise ValueError("plataforma desconocida")
         vistas = d.get("vistas")
         vistas = int(vistas) if vistas not in (None, "") else None
-        mutar(lambda est: lote.marcar_publicado(
-            _vod_o_error(est, d["id"]), float(d["t"]), d["plataforma"], d.get("url", ""), vistas))
+
+        def publicar(est: dict) -> None:
+            vod = _vod_o_error(est, d["id"])
+            # el aviso de la pestaña Clips era solo un cartel: se podía anotar una
+            # publicación de un streamer al que nunca se le pidió permiso
+            lote.exigir_permiso(vod, mod_perfiles.obtener(vod.get("streamer", "")))
+            lote.marcar_publicado(vod, float(d["t"]), d["plataforma"], d.get("url", ""), vistas)
+
+        mutar(publicar)
         return {}
     if ruta == "/api/perfiles":
         with CANDADO:
