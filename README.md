@@ -1,14 +1,16 @@
 # clip-pipeline
 
-Detecta momentos destacados en VODs de streams usando **el chat como señal**, para
-cortar clips sin mirar el VOD entero.
+Detecta momentos destacados en VODs de streams usando **el chat como señal**, y los
+deja como clips verticales subtitulados, con el texto de cada plataforma listo para
+pegar. No publica nada.
 
 La idea de fondo: el chat ya es un anotador humano de highlights trabajando gratis
 y en tiempo real. Cuando pasa algo bueno, se acelera. Si esa señal funciona, no hace
 falta ni mirar el video ni correr un modelo de visión para encontrar los momentos.
 
-Es la etapa 2 de un pipeline más largo (ingesta → **detección** → reencuadre 9:16 →
-subtítulos → publicación). Se construye en ese orden porque si la etapa 2 no funciona,
+El recorrido completo es: ingesta del chat → **detección** → revisión de los picos →
+corte → reencuadre 9:16 → subtítulos → control del clip → entrega o plan de
+publicación. Se construyó empezando por la detección porque si esa etapa no funciona,
 el resto no tiene sentido.
 
 ## Instalación
@@ -16,10 +18,13 @@ el resto no tiene sentido.
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pytest tests/ -q     # no bajan nada ni tocan la red
 ```
 
-Necesita `yt-dlp` y `ffmpeg` en el sistema. `yt-dlp` conviene mantenerlo actualizado:
-YouTube cambia de formato seguido y es la dependencia que más se rompe.
+Necesita `yt-dlp`, `ffmpeg` y `ffprobe` en el sistema. `yt-dlp` conviene mantenerlo
+actualizado: YouTube cambia de formato seguido y es la dependencia que más se rompe.
+Para VODs de Twitch hace falta además `TwitchDownloaderCLI`, que se instala aparte
+(ver [Twitch](#twitch)).
 
 ## Uso
 
@@ -66,17 +71,65 @@ PYTHONPATH=src .venv/bin/python -m clips.lote correr
 PYTHONPATH=src .venv/bin/python -m clips.panel      # http://localhost:8765
 ```
 
-El panel tiene cuatro pestañas:
+El panel tiene estas pestañas:
 
 - **Tablero**: la cola de VODs, la precisión medida y el registro de lo que está corriendo.
 - **Revisión**: un pico a la vez, con el VOD embebido 20 segundos antes del momento.
   `B` bueno, `D` dudoso, `M` malo, `S` saltar, `P` bueno y producir el clip.
 - **Clips**: cada clip producido con su texto por plataforma para copiar, el archivo
-  para bajar y el link de subida. Ahí se anota la URL del post y después las vistas.
-- **Streamers**: los perfiles, incluido si el streamer **dio permiso** para publicar.
+  para bajar y el link de subida. Ahí se le pone el **control** al clip terminado
+  («Clip ok» o «Rehacer»), se arma la **entrega** y se anota la URL del post y después
+  las vistas.
+- **Streamers**: los perfiles: canales, formato, facecam, voz de los textos, usuario de
+  X y si el streamer **dio permiso** para publicar.
 
 Analizar un VOD solo baja el chat, así que revisar 50 picos no ocupa disco: el video se
 mira embebido desde la plataforma y recién se corta el clip de lo que se aprueba.
+
+### Dos veredictos: el del pico y el del clip
+
+El veredicto de Revisión se pone mirando el VOD embebido, antes de producir, y dice que
+**el momento** vale. No dice nada de si **el clip** salió bien: subtítulos, gancho,
+encuadre. Por eso cada clip producido tiene un segundo paso, el control:
+
+- **Clip ok**: el archivo está para salir.
+- **Rehacer**: con otra variante, corriendo el inicio hasta 15 segundos, o las dos
+  cosas, más una nota de qué estaba mal. Rehacer le saca el visto bueno al clip, porque
+  era de otro archivo.
+
+### La entrega
+
+Con al menos un clip con control «ok», «Armar entrega» deja una carpeta y un zip por
+directo: los videos numerados en el orden del directo, un `.txt` por clip con el texto
+de cada plataforma y un `LEEME.txt`. No manda nada. Sirve para la muestra que acompaña
+el primer mensaje a un streamer, para que un cliente vea los clips antes de que se
+publiquen, y para el cliente que prefiere subirlos él.
+
+La entrega se arma aunque el permiso no esté concedido, porque los clips hechos son
+justo lo que se manda para pedirlo; en ese caso el LEEME la presenta como muestra. Solo
+un permiso «negado» la frena. **Registrar una publicación sí exige permiso
+«concedido»**, también en un canal propio.
+
+### Lo que es constante por streamer
+
+Va en el perfil, no en flags:
+
+- **Facecam**: se mide desde el panel («Medir facecam») dibujando la caja con el mouse
+  sobre un cuadro del VOD. Si en un directo la cámara está en otro lugar, «Guardar solo
+  para este VOD» la cambia para ese directo sin tocar el perfil.
+- **Voz de los textos** («Cuenta donde se suben»): `tercero` es un canal de clips
+  hablando del streamer; `propia` es el streamer en su cuenta, que no se nombra a sí
+  mismo, no se da crédito y no lleva `#clips`. El valor por defecto es `tercero`.
+- **Usuario de X**: si está cargado, el texto de X menciona al streamer en la línea del
+  crédito (nunca al principio: un post que arranca con una mención se trata como
+  respuesta). En voz `propia` no se usa.
+
+### El estado no se pierde
+
+Todo lo que se decide en el panel vive en `datos/lote.json`, que no va al repo. Cada vez
+que se guarda se respalda solo en `~/.config/clip-pipeline/respaldos/`: una copia por
+día y, aparte, una cada vez que el estado nuevo trae **menos veredictos** que el de
+disco. Esas últimas no se borran nunca.
 
 ### Chats chicos
 
@@ -112,7 +165,7 @@ que vos marcás como publicado. Escucha solo en `127.0.0.1`.
 
 ## Cómo decide qué es un pico
 
-Dos correcciones que hacen la diferencia entre algo que funciona y algo que no:
+Seis decisiones que hacen la diferencia entre algo que funciona y algo que no:
 
 **1. Normalizar contra lo normal de ese momento.** La tasa cruda de mensajes depende
 de cuánta gente está mirando, y eso varía a lo largo del stream. Se compara cada
@@ -148,7 +201,7 @@ es el asunto de ese momento. Es TF-IDF con los picos como documentos.
 De ahí sale el **foco**: qué fracción del chat converge en algo propio de ese momento. No
 hay ningún diccionario de emotes que mantener: se adapta solo a cada streamer e idioma.
 
-**6. Ordenar por volumen y acuerdo, no por volumen.**
+**4. Ordenar por volumen y acuerdo, no por volumen.**
 
 ```
 prioridad = score x (0.5 + foco)
@@ -159,13 +212,13 @@ el foco directo porque un pico sin tema identificable igual puede ser un clip (u
 de risas no tiene "asunto"), así que el foco ajusta pero no anula. Los artefactos
 (`cierre`) van siempre al final.
 
-**4. Filtrar el arranque por tiempo y el final por contenido.** El `¿se escucha?` del
+**5. Filtrar el arranque por tiempo y el final por contenido.** El `¿se escucha?` del
 principio nunca es un clip, así que se descartan los primeros 10 minutos. El final **no**
 se descarta por tiempo: en las pruebas, filtrar los últimos 5 minutos mataba la despedida
 pero también el climax, que estaba 2 minutos antes. La despedida se detecta por lo que dice
 el chat (etiqueta `cierre`) y el CLI avisa.
 
-**5. Normalizar el alargue de letras.** El chat escribe `siiii` y `romanceeee`; sin
+**6. Normalizar el alargue de letras.** El chat escribe `siiii` y `romanceeee`; sin
 colapsar las repeticiones el conteo se parte y ningún token llega al mínimo.
 
 Todo esto está cubierto por tests: que encuentre picos inyectados a mano, que **no invente
@@ -174,19 +227,14 @@ baje cuando el pico no tiene tema propio, y que descarte el arranque sin perder 
 
 ## Estado
 
-| Etapa | Estado |
-| :--- | :--- |
-| Ingesta de chat (YouTube) | ✅ anda, vía yt-dlp |
-| Ingesta de chat (Twitch) | ✅ anda, vía TwitchDownloaderCLI |
-| Detección de picos | ✅ con tests |
-| Corte del segmento | ✅ baja solo el tramo, no el VOD entero |
-| Reencuadre 9:16 | ✅ `desenfoque`, `recorte` y `dividido` |
-| Subtítulos | ✅ faster-whisper + ASS quemado |
-| Plan de publicación | ✅ metadatos y manifiesto (no publica) |
+Todas las etapas corren de punta a punta y tienen tests. Lo que falta no es código:
+la **precisión del detector todavía no está medida**, porque depende de los veredictos
+que se cargan en el panel. La línea de estado al día está al final de
+[CLAUDE.md](CLAUDE.md).
 
-### Twitch
+## Twitch
 
-Twitch necesita una herramienta aparte, porque:
+El chat de YouTube se baja con `yt-dlp`. Twitch necesita una herramienta aparte, porque:
 
 - `yt-dlp` baja el **video** de un VOD de Twitch, pero no el chat: en Twitch el chat
   no es una pista de subtítulos como en YouTube.
@@ -397,6 +445,15 @@ arranque en una conjunción, para que no termine en "...y encima".
 
 Las plataformas de destino son cuatro: TikTok, Instagram Reels, YouTube Shorts y X.
 
+Los textos se escriben en la **voz** del perfil del streamer (`tercero` o `propia`, ver
+[Lo que es constante por streamer](#lo-que-es-constante-por-streamer)). Con el mismo
+pico:
+
+| | tercero | propia |
+| :--- | :--- | :--- |
+| Título | Romance vs malas — el chat de AuronPlay no se ponía de acuerdo | Romance vs malas: el chat no se ponía de acuerdo |
+| Descripción | Clip del stream de AuronPlay. Fuente: (link) | El directo completo: (link) |
+
 ### Texto listo para pegar
 
 Además del manifiesto, se escribe un `.txt` por clip y plataforma en `salida/textos/`:
@@ -444,6 +501,7 @@ automático.
 | `src/clips/metadatos.py` | Título, gancho, cita y hashtags |
 | `src/clips/publicar.py` | Valida por plataforma y escribe el manifiesto |
 | `src/clips/cuentas.py` | Registro de cuentas y monetización |
+| `src/clips/entrega.py` | El paquete por directo para el streamer: carpeta, zip y LEEME |
 | `src/clips/pipeline.py` | Del pico al clip: corte, reencuadre y subtítulos |
 | `src/clips/perfiles.py` | Perfil por streamer: facecam, formato, canales, permiso |
 | `src/clips/lote.py` | La cola de VODs, los veredictos y lo publicado |
