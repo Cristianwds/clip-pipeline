@@ -95,3 +95,12 @@ def test_si_no_hay_lugar_no_se_traba():
     from clips.reencuadre import _limites_sin_facecam
     lo, hi = _limites_sin_facecam((300, 0, 700, 400), ancho=900, W=1280)
     assert (lo, hi) == (0, 1280 - 900)
+
+
+def test_el_inicio_del_clip_se_recorta_en_la_misma_codificacion():
+    """El ajuste a la frase no puede costar una codificación más: el `-ss` va en los
+    argumentos de entrada del ffmpeg que ya reencuadra, y antes del `-i`, que es lo
+    que hace que los tiempos de salida arranquen en cero."""
+    from clips.reencuadre import _entrada
+    assert _entrada(Path("a.mp4"), 0.0) == ["-i", "a.mp4"]
+    assert _entrada(Path("a.mp4"), 3.85) == ["-ss", "3.850", "-i", "a.mp4"]

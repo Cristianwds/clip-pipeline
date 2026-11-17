@@ -169,16 +169,16 @@ def titular_desde(
             return f"{base} del directo"
         return f"{base} de {streamer}" if streamer else base
 
-    nucleo = " vs ".join(claves[:2]) if len(claves) >= 2 else claves[0]
-    titulo = f"{nucleo.capitalize()}: lo que pedía el chat"
-    if propia:
-        # «no se ponía de acuerdo» solo si de verdad había dos cosas en disputa
-        if len(claves) >= 2:
-            titulo = f"{nucleo.capitalize()}: el chat no se ponía de acuerdo"
-        return titulo
-    if streamer:
-        titulo = f"{nucleo.capitalize()} — el chat de {streamer} no se ponía de acuerdo"
-    return titulo
+    # Se usa una sola palabra y se dice lo único que se sabe: que el chat la repitió.
+    # Antes con dos palabras salía «A vs B — el chat no se ponía de acuerdo», y en los
+    # 45 picos del top 5 la disputa era real en dos. Lo demás eran una frase escrita
+    # por una persona («oi yt pati» 17 veces), risas o emotes. Contar en qué mensajes
+    # aparece cada palabra no lo arregla: esa regla marcaba 22 de 45. Saber si hubo
+    # disputa necesita entender el momento (ítem 2.14, títulos con un modelo).
+    nucleo = claves[0].capitalize()
+    if streamer and not propia:
+        return f"{nucleo} — el chat de {streamer} no paró de escribirlo"
+    return f"{nucleo}: el chat no paró de escribirlo"
 
 
 def elegir_cita(
@@ -340,12 +340,12 @@ def _con_tiempo(url: str, segundo: int) -> str:
 # retención coinciden en tres cosas: el gancho va en los primeros 3 segundos, tiene
 # que leerse SIN SONIDO (mucha gente mira en mudo) y no pasa de 6-8 palabras.
 #
-# El gancho se arma con las mismas palabras que el chat repitió, que son justo las
-# que generaron la reacción. No hay que inventar nada.
+# El gancho va por el tono del momento y no lleva las palabras del chat. Las llevaba
+# («¿{a} o {b}?», «El chat eligió: {a}») y afirmaba una disputa o una elección que
+# casi nunca existía: ver el comentario en `titular_desde`. Las palabras del tema
+# siguen resaltadas en los subtítulos, donde no afirman nada.
 
 GANCHOS = {
-    "duda": "¿{a} o {b}?",
-    "eleccion": "El chat eligió: {a}",
     "reaccion": "El chat explotó con esto",
     "epico": "Mirá cómo termina",
     "gracioso": "No pudo aguantarse",
@@ -359,15 +359,12 @@ TONO_POR_ETIQUETA = {
 
 def gancho(tema: list[str], etiqueta: str = "",
            vocabulario_audio: set[str] | None = None, max_palabras: int = 8) -> str:
-    """Texto corto para el primer segundo y medio del clip."""
-    tokens = [t for t in consolidar(parsear_tema(tema), vocabulario_audio)
-              if sin_tildes(t.palabra) not in RUIDO and len(t.palabra) > 2]
-    if len(tokens) >= 2:
-        texto = GANCHOS["duda"].format(a=tokens[0].palabra, b=tokens[1].palabra)
-    elif tokens:
-        texto = GANCHOS["eleccion"].format(a=tokens[0].palabra)
-    else:
-        texto = GANCHOS.get(TONO_POR_ETIQUETA.get(etiqueta, ""), GANCHOS["reaccion"])
+    """Texto corto para el primer segundo y medio del clip.
+
+    `tema` y `vocabulario_audio` no se usan desde que el gancho dejó de llevar las
+    palabras del chat; quedan para no cambiar a quien lo llama.
+    """
+    texto = GANCHOS.get(TONO_POR_ETIQUETA.get(etiqueta, ""), GANCHOS["reaccion"])
     palabras = texto.split()
     if len(palabras) > max_palabras:
         texto = " ".join(palabras[:max_palabras])

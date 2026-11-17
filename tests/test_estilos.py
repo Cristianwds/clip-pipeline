@@ -25,16 +25,11 @@ def test_la_eleccion_es_reproducible():
     assert elegir(3, "gracioso").nombre == elegir(3, "gracioso").nombre
 
 
-def test_todas_las_variantes_duran_entre_15_y_30_segundos():
-    """El punto dulce de retención en formato corto."""
+def test_las_variantes_no_definen_el_largo():
+    """Lo definían, con entradas de 4 a 9 s, y los clips arrancaban tarde. El tramo
+    sale de la ráfaga del chat (`pipeline.tramo`); acá queda solo el estilo."""
     for v in VARIANTES:
-        assert 15 <= v.duracion <= 30, f"{v.nombre} dura {v.duracion}s"
-
-
-def test_el_pico_cae_en_la_primera_mitad_del_clip():
-    """Si el momento bueno llega al final, el que mira ya se fue."""
-    for v in VARIANTES:
-        assert v.antes < v.despues, f"{v.nombre}: {v.antes}s de intro es demasiado"
+        assert not hasattr(v, "antes") and not hasattr(v, "duracion"), v.nombre
 
 
 # --- gancho ----------------------------------------------------------------
@@ -44,9 +39,16 @@ def test_el_gancho_no_pasa_de_ocho_palabras():
         assert len(gancho(tema, "gracioso").split()) <= 8, tema
 
 
-def test_el_gancho_usa_las_palabras_del_chat():
-    g = gancho(["romanse×8", "matala×20"], "gracioso", {"romance"})
-    assert "romance" in g.lower()
+def test_el_gancho_no_inventa_una_disputa_ni_una_eleccion():
+    """Con dos palabras salía «¿A o B?» y con una «El chat eligió: A». En los 45
+    picos del top 5 la disputa era real en dos."""
+    for tema in (["yt×59", "pati×36"], ["cumby×42"], ["romanse×8", "matala×20"]):
+        g = gancho(tema, "gracioso")
+        assert "¿" not in g and "eligió" not in g, (tema, g)
+
+
+def test_el_gancho_va_por_el_tono_del_momento():
+    assert gancho(["a×3"], "épico") != gancho(["a×3"], "gracioso")
 
 
 def test_siempre_hay_gancho_aunque_no_haya_tema():
@@ -54,8 +56,8 @@ def test_siempre_hay_gancho_aunque_no_haya_tema():
 
 
 def test_el_gancho_arranca_en_mayuscula_aunque_empiece_con_signo():
-    assert gancho(["romance×8", "matar×9"]).startswith("¿M") or \
-           gancho(["romance×8", "matar×9"]).startswith("¿R")
+    from clips.metadatos import _mayuscula_inicial
+    assert _mayuscula_inicial("¿mátala o romance?") == "¿Mátala o romance?"
 
 
 def test_el_ruido_del_chat_no_entra_en_el_gancho():
@@ -130,4 +132,5 @@ def test_una_plataforma_sin_cuenta_aparece_igual_en_la_tabla(tmp_path, monkeypat
 
 def test_el_gancho_no_mayusculiza_un_nick_que_empieza_con_numero():
     """'8cho' quedaba '8Cho'."""
-    assert "8Cho" not in gancho(["8cho×15", "manco×12"])
+    from clips.metadatos import _mayuscula_inicial
+    assert _mayuscula_inicial("8cho o manco") == "8cho o manco"

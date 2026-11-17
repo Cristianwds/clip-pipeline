@@ -90,6 +90,55 @@ FIN_FRASE = ".?!…"
 PAUSA = ",;:"
 
 
+RESPIRO = 0.15   # segundos que se dejan antes de la primera palabra del clip
+
+
+def inicio_de_frase(
+    palabras: list[Palabra], objetivo: float, atras: float, adelante: float = 3.0,
+    corte_silencio: float = 0.6,
+) -> float:
+    """El segundo donde conviene empezar el clip, cerca de `objetivo`.
+
+    El objetivo sale del chat y cae donde cae: a mitad de una frase o de una palabra.
+    Se busca el comienzo de frase más cercano entre `objetivo - atras` y
+    `objetivo + adelante`. Es comienzo de frase una palabra que viene después de un
+    punto o de un silencio, con el mismo criterio que usa `agrupar` para cortar
+    líneas.
+
+    Si no hay ninguno a mano, por lo menos no se parte una palabra: se empieza donde
+    empieza la que está sonando. Y si en el objetivo hay silencio, se queda ahí.
+    """
+    comienzos = []
+    for i, p in enumerate(palabras):
+        if i == 0:
+            nueva = True
+        else:
+            previa = palabras[i - 1]
+            nueva = (previa.texto.rstrip()[-1:] in FIN_FRASE
+                     or p.t0 - previa.t1 >= corte_silencio)
+        if nueva and objetivo - atras <= p.t0 - RESPIRO <= objetivo + adelante:
+            comienzos.append(max(0.0, p.t0 - RESPIRO))
+    if comienzos:
+        # a igual distancia gana el de antes: sobra un segundo de contexto, no falta
+        return min(comienzos, key=lambda c: (abs(c - objetivo), c))
+    for p in palabras:
+        if p.t0 < objetivo < p.t1:
+            if p.t0 - RESPIRO >= objetivo - atras:
+                return max(0.0, p.t0 - RESPIRO)
+            # no se puede retroceder tanto: se la deja terminar y se arranca después
+            return p.t1 if p.t1 <= objetivo + adelante else objetivo
+    return objetivo
+
+
+def desplazar(palabras: list[Palabra], desde: float) -> list[Palabra]:
+    """Las palabras con los tiempos del clip que arranca en `desde`.
+
+    La transcripción se hace sobre el corte ancho, antes de saber dónde empieza el
+    clip. Lo que quedó antes del inicio se descarta.
+    """
+    return [Palabra(p.t0 - desde, p.t1 - desde, p.texto) for p in palabras if p.t0 >= desde]
+
+
 def agrupar(
     palabras: list[Palabra], max_chars: int = 22, max_dur: float = 2.5,
     corte_silencio: float = 0.6,
@@ -254,37 +303,16 @@ def quemar(video: Path, ass: Path, salida: Path) -> Path:
     return salida
 
 
-def preparar(
-    video: Path, modelo: str = MODELO_POR_DEFECTO, idioma: str | None = None,
-    max_chars: int = 22,
-) -> tuple[list[Linea], str]:
-    """Transcribe y agrupa, sin tocar el video todavía.
+def rematar(video: Path, lineas: list[Linea], sufijo: str = "_sub", **kw_estilo) -> Path:
+    """Escribe el ASS y lo quema.
 
-    Está separado de `rematar` porque el gancho y las palabras a resaltar se arman
-    **con la transcripción**: el chat escribe mal y el audio corrige la ortografía.
-    Si se hiciera todo de una, el gancho saldría con el error del chat quemado en
+    Está separado de `transcribir` porque entre los dos pasan dos cosas que necesitan
+    la transcripción: se decide dónde empieza el clip (`inicio_de_frase`) y se arman
+    el gancho y las palabras a resaltar. El chat escribe mal y el audio corrige la
+    ortografía; con todo de una, el gancho salía con el error del chat quemado en
     pantalla (pasó: decía «¿Romanse o malas?»).
     """
-    palabras, detectado = transcribir(video, modelo=modelo, idioma=idioma)
-    if not palabras:
-        raise RuntimeError("la transcripción no devolvió palabras (¿el clip tiene audio?)")
-    return agrupar(palabras, max_chars=max_chars), detectado
-
-
-def rematar(video: Path, lineas: list[Linea], sufijo: str = "_sub", **kw_estilo) -> Path:
-    """Escribe el ASS y lo quema."""
     ass = video.with_suffix(".ass")
     ass.write_text(a_ass(lineas, **kw_estilo), encoding="utf-8")
     salida = video.with_name(video.stem + sufijo + ".mp4")
     return quemar(video, ass, salida)
-
-
-def subtitular(
-    video: Path, modelo: str = MODELO_POR_DEFECTO, idioma: str | None = None,
-    sufijo: str = "_sub", max_chars: int = 22, **kw_estilo,
-) -> tuple[Path, list[str]]:
-    """Camino corto: transcribe, arma el ASS y lo quema, sin gancho dependiente."""
-    lineas, detectado = preparar(video, modelo, idioma, max_chars)
-    salida = rematar(video, lineas, sufijo, **kw_estilo)
-    print(f"  idioma detectado: {detectado} | {len(lineas)} líneas")
-    return salida, [l.texto for l in lineas]

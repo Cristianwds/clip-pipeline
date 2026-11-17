@@ -355,31 +355,44 @@ texto es lo que las plataformas leen como contenido producido en masa, y además
 Tres cosas lo evitan:
 
 **1. Variantes de formato que rotan.** Cada clip usa una de cuatro variantes, que
-cambian el largo, el tamaño y la posición de los subtítulos, el color del resaltado y
-si lleva gancho. La elección **rota con el índice**, no es al azar: es reproducible y
-dos clips seguidos nunca salen iguales.
+cambian el tamaño y la posición de los subtítulos, el color del resaltado y si lleva
+gancho. La elección **rota con el índice**, no es al azar: es reproducible y dos clips
+seguidos nunca salen iguales.
 
-| Variante | Largo | Payoff a los | Cuerpo | Gancho |
-| :--- | ---: | ---: | ---: | :--- |
-| directo | 18s | 22% | 68 | sí |
-| contexto | 26s | 31% | 60 | sí |
-| crudo | 21s | 24% | 72 | no |
-| desarrollo | 28s | 32% | 62 | sí |
+| Variante | Cuerpo | Gancho |
+| :--- | ---: | :--- |
+| directo | 68 | sí |
+| contexto | 60 | sí |
+| crudo | 72 | no |
+| desarrollo | 62 | sí |
 
-Los largos salen de las guías de retención de formato corto, que ubican el punto dulce
-entre 15 y 30 segundos. Antes se cortaba 20 s antes del pico y 15 después: 35 segundos
-con la parte buena recién a la mitad.
+**2. El largo sale del momento, no de la variante.** Cada variante tenía su largo, de 18
+a 28 segundos, entrando 4 a 9 s antes del pico. Se cortaron cinco picos con margen ancho
+y se transcribieron: en los tres que tenían voz, ==lo que había que ver empezaba entre 12
+y 28 segundos antes del centro==. El chat recién reacciona cuando el momento ya pasó.
 
-El `antes` es corto a propósito. ==El pico del chat no es el instante del hecho: el chat
-reacciona uno o dos segundos después==, así que el momento ya está un poco antes del
-centro de la ventana.
+Ahora el detector mide, para cada pico, dónde arranca y dónde se apaga la ráfaga del
+chat (`picos.rafaga`). El clip entra 18 s antes de que arranque la ráfaga y termina 4 s
+después de que se apaga, con un tope de 40 s: si no entra, se acorta la entrada y no la
+reacción (`pipeline.tramo`). Después se ajusta el inicio al comienzo de frase más
+cercano, con los tiempos de la transcripción (`subtitulos.inicio_de_frase`), para no
+arrancar a mitad de palabra. Ese ajuste no cuesta una codificación más: lo hace el mismo
+ffmpeg que reencuadra.
 
-**2. Gancho en los primeros 2,5 segundos.** Un cartel grande arriba, de 8 palabras como
-máximo, armado con las mismas palabras que el chat repitió: `¿Mátala o romance?`. Las
-guías coinciden en que el primer par de segundos decide la distribución, y en que el
-gancho tiene que leerse **sin sonido**, porque mucha gente mira en mudo.
+Los clips quedan de 25 a 40 segundos, más que el punto dulce de 15 a 30 de las guías.
+Es a propósito: un clip de 20 s que empieza después del momento no sirve a ningún largo.
 
-**3. Palabras clave resaltadas.** Dentro del subtítulo, las palabras del tema van en otro
+**3. Gancho en los primeros 2,5 segundos.** Un cartel grande arriba, de 8 palabras como
+máximo, según el tono del momento: «No pudo aguantarse», «Mirá cómo termina». Las guías
+coinciden en que el primer par de segundos decide la distribución, y en que el gancho
+tiene que leerse **sin sonido**, porque mucha gente mira en mudo.
+
+El gancho ya no lleva las palabras del chat. Salía `¿Mátala o romance?` con cualquier
+par, y en los 45 picos del top 5 la disputa era real en dos: lo demás eran una frase de
+una sola persona, risas o emotes. El título tampoco la afirma: usa la palabra más
+repetida y dice que el chat no paró de escribirla, que es lo que se midió.
+
+**4. Palabras clave resaltadas.** Dentro del subtítulo, las palabras del tema van en otro
 color. Son justo las que explican el momento, y el color cambia según la variante.
 
 ```bash
@@ -451,7 +464,7 @@ pico:
 
 | | tercero | propia |
 | :--- | :--- | :--- |
-| Título | Romance vs malas — el chat de AuronPlay no se ponía de acuerdo | Romance vs malas: el chat no se ponía de acuerdo |
+| Título | Romance — el chat de AuronPlay no paró de escribirlo | Romance: el chat no paró de escribirlo |
 | Descripción | Clip del stream de AuronPlay. Fuente: (link) | El directo completo: (link) |
 
 ### Texto listo para pegar
