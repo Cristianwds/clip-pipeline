@@ -1,12 +1,60 @@
 """Corta los segmentos del VOD alrededor de cada pico, sin bajar el VOD entero."""
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from pathlib import Path
 
 from .picos import Pico
 
 SALIDA = Path(__file__).resolve().parents[2] / "salida"
+
+# Tope para cortar un clip. El 2026-11-16 un corte quedó 17 minutos con el archivo en
+# 0 bytes: la conexión se había muerto y nadie lo cortaba. En el panel hay un solo
+# trabajador, así que un corte colgado frena toda la cola. Un corte de 70 s tarda menos
+# de un minuto; esto deja margen para una conexión lenta.
+TIEMPO_MAXIMO = float(os.environ.get("CLIP_PIPELINE_TIMEOUT_CORTE", 600))
+
+# Los cuelgues vistos fueron de la conexión y no del VOD (los otros cortes de la misma
+# tanda salieron bien), así que vale la pena probar de nuevo. Una sola vez: dos topes
+# seguidos ya son 20 minutos.
+INTENTOS = 2
+
+_PARCIALES = (".part", ".ytdl")
+
+
+def _correr(cmd: list[str], tope: float) -> subprocess.CompletedProcess:
+    """Corre un comando y, si pasa el tope, lo mata junto con todo lo que lanzó.
+
+    `subprocess.run(timeout=...)` mata solo al proceso directo. yt-dlp baja el tramo
+    con un ffmpeg hijo, y ese ffmpeg es justo el que queda colgado: sobrevive a su
+    padre y sigue con el archivo abierto. Por eso el comando va en un grupo propio y
+    se mata el grupo.
+    """
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         start_new_session=True)
+    try:
+        salida, error = p.communicate(timeout=tope)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.communicate()            # junta al proceso para no dejar un zombi
+        raise
+    return subprocess.CompletedProcess(cmd, p.returncode, salida, error)
+
+
+def _borrar_restos(carpeta: Path, nombre: str) -> None:
+    """Saca todo lo que dejó un intento que no terminó.
+
+    No solo los `.part`: yt-dlp baja video y audio por separado, y si se cuelga en el
+    audio queda un `nombre.f398.mp4` entero pero mudo. Como el éxito se decide mirando
+    el disco, ese archivo pasaría por el clip.
+    """
+    for q in carpeta.glob(nombre + ".*"):
+        q.unlink(missing_ok=True)
 
 
 def _hms(s: float) -> str:
@@ -91,15 +139,27 @@ def cortar(
             "-o", str(base) + ".%(ext)s", url,
         ]
         print(f"  cortando {p.hhmmss()} ...", flush=True)
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = None
+        for intento in range(1, INTENTOS + 1):
+            try:
+                r = _correr(cmd, TIEMPO_MAXIMO)
+                break
+            except subprocess.TimeoutExpired:
+                _borrar_restos(carpeta, base.name)
+                if intento < INTENTOS:
+                    print(f"  ! {p.hhmmss()} no terminó en {TIEMPO_MAXIMO / 60:.0f} min, "
+                          "pruebo de nuevo", flush=True)
 
         # yt-dlp puede terminar en 0 y aun asi dejar el archivo con otra extension,
         # asi que el exito se decide mirando el disco, no el returncode.
         producidos = sorted(q for q in carpeta.glob(base.name + ".*")
-                            if q.suffix.lower() not in (".part", ".ytdl"))
+                            if q.suffix.lower() not in _PARCIALES)
         if not producidos:
-            detalle = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or [f"rc={r.returncode}"]
-            print(f"  ! falló {p.hhmmss()}: {detalle[0]}")
+            if r is None:
+                detalle = [f"no terminó en {TIEMPO_MAXIMO / 60:.0f} min ({INTENTOS} intentos)"]
+            else:
+                detalle = (r.stderr or r.stdout or "").strip().splitlines()[-1:] or [f"rc={r.returncode}"]
+            print(f"  ! falló {p.hhmmss()}: {detalle[0]}", flush=True)
             continue
         real = producidos[0]
         if real != destino:

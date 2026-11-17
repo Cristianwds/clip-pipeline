@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 223 tests, corren en unos segundos
+.venv/bin/python -m pytest tests/ -q          # 229 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -169,6 +169,11 @@ módulo y en la nota del vault.
 - **`yt-dlp` puede terminar en 0 y no dejar el archivo que pediste.** Elige el contenedor
   y le pega su extensión al nombre: `pico_01.mp4` sale como `pico_01.mp4.webm`. En
   `cortar.py` el éxito se decide mirando el disco, no el returncode.
+- **`yt-dlp` se puede colgar sin escribir un byte, y matarlo no alcanza.** Baja el tramo
+  con un `ffmpeg` hijo que sobrevive a su padre. `cortar._correr` lo lanza en un grupo
+  propio y mata el grupo al pasar `cortar.TIEMPO_MAXIMO`; se reintenta una vez. Lo que
+  deja un intento colgado se borra entero: puede quedar la pista de video sin audio con
+  un nombre que pasaría por el clip.
 - **El nombre del clip incluye el largo** (`pico_01_1h48m27s_18s.mp4`). Si no, al cambiar
   de variante se reusa el corte anterior porque "el archivo ya existe".
 - **`chat-downloader` está muerto** (última versión de 2022, falla en las dos
