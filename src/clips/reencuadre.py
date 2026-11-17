@@ -81,8 +81,12 @@ def _suavizar(
 def trayectoria(
     entrada: Path, aspecto: float = 9 / 16, fps_muestreo: float = 4.0,
     ancho_analisis: int = 320, excluir: tuple[int, int, int, int] | None = None,
+    desde: float = 0.0,
 ) -> tuple[list[tuple[float, float]], tuple[int, int]]:
     """Devuelve [(segundo, centro_x en px del original)] y el tamaño del video.
+
+    desde: segundo del archivo donde empieza el clip. Lo anterior no se mide y los
+    tiempos salen contados desde ahí, que es como los va a ver ffmpeg.
 
     excluir: región (x, y, ancho, alto) que se ignora al medir el movimiento. Se usa
     para la facecam: es lo que más se mueve en pantalla y si no se la saca, el encuadre
@@ -109,6 +113,9 @@ def trayectoria(
         ok, frame = cap.read()
         if not ok:
             break
+        if i / fps < desde:
+            i += 1
+            continue
         if i % salto == 0:
             chico = cv2.cvtColor(
                 cv2.resize(frame, (ancho_analisis, max(1, int(H * escala)))),
@@ -122,7 +129,7 @@ def trayectoria(
                 perfil = dif.sum(axis=0)
                 cx = _perfil_a_centro(perfil, ancho_recorte_chico)
                 centros.append(cx / escala)
-                tiempos.append(i / fps)
+                tiempos.append(i / fps - desde)
             previo = chico
         i += 1
     cap.release()
@@ -197,7 +204,17 @@ def _ffmpeg(args: list[str]) -> None:
         raise RuntimeError(f"ffmpeg falló: {(r.stderr or '').strip()[-400:]}")
 
 
-def desenfocar(entrada: Path, salida: Path) -> Path:
+def _entrada(entrada: Path, desde: float) -> list[str]:
+    """Los argumentos de entrada de ffmpeg, salteando lo que queda antes del clip.
+
+    El recorte del inicio va acá y no en un paso aparte porque esta etapa ya codifica:
+    hacerlo antes sería una codificación más. Con `-ss` antes de `-i` el corte es
+    exacto al cuadro y los tiempos de salida arrancan en cero.
+    """
+    return (["-ss", f"{desde:.3f}"] if desde > 0 else []) + ["-i", str(entrada)]
+
+
+def desenfocar(entrada: Path, salida: Path, desde: float = 0.0) -> Path:
     """16:9 centrado sobre su propia versión ampliada y desenfocada. No pierde imagen."""
     w, h = VERTICAL
     filtro = (
@@ -206,18 +223,18 @@ def desenfocar(entrada: Path, salida: Path) -> Path:
         f"[0:v]scale={w}:-2[frente];"
         f"[fondo][frente]overlay=(W-w)/2:(H-h)/2,setsar=1[v]"
     )
-    _ffmpeg(["-i", str(entrada), "-filter_complex", filtro, "-map", "[v]",
+    _ffmpeg([*_entrada(entrada, desde), "-filter_complex", filtro, "-map", "[v]",
              "-map", "0:a?", "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
              "-c:a", "aac", "-b:a", "128k", str(salida)])
     return salida
 
 
-def recortar_siguiendo(entrada: Path, salida: Path) -> Path:
+def recortar_siguiendo(entrada: Path, salida: Path, desde: float = 0.0) -> Path:
     """Recorte vertical a altura completa que se mueve con la acción."""
-    puntos, (W, H) = trayectoria(entrada)
+    puntos, (W, H) = trayectoria(entrada, desde=desde)
     ancho = int(round(H * VERTICAL[0] / VERTICAL[1]))
     if ancho >= W:  # ya es mas angosto que 9:16
-        return desenfocar(entrada, salida)
+        return desenfocar(entrada, salida, desde)
 
     with tempfile.TemporaryDirectory() as tmp:
         cmds = Path(tmp) / "cmds.txt"
@@ -227,7 +244,7 @@ def recortar_siguiendo(entrada: Path, salida: Path) -> Path:
             f"sendcmd=f='{cmds}',crop@accion=w={ancho}:h={H}:x={x0}:y=0,"
             f"scale={VERTICAL[0]}:{VERTICAL[1]},setsar=1"
         )
-        _ffmpeg(["-i", str(entrada), "-vf", filtro, "-map", "0:v", "-map", "0:a?",
+        _ffmpeg([*_entrada(entrada, desde), "-vf", filtro, "-map", "0:v", "-map", "0:a?",
                  "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
                  "-c:a", "aac", "-b:a", "128k", str(salida)])
     return salida
@@ -235,7 +252,7 @@ def recortar_siguiendo(entrada: Path, salida: Path) -> Path:
 
 def dividir(
     entrada: Path, salida: Path, facecam: tuple[int, int, int, int],
-    fraccion_cam: float = 0.34,
+    fraccion_cam: float = 0.34, desde: float = 0.0,
 ) -> Path:
     """Facecam arriba, acción abajo. facecam = (x, y, ancho, alto) en píxeles del original.
 
@@ -250,7 +267,7 @@ def dividir(
         raise ValueError(f"la facecam {facecam} no entra en un video de {cap_w}x{cap_h}")
 
     # la facecam se saca del analisis: es lo que mas se mueve y se roba el encuadre
-    puntos, (W, H) = trayectoria(entrada, excluir=facecam)
+    puntos, (W, H) = trayectoria(entrada, excluir=facecam, desde=desde)
     ancho_juego = min(W, _ancho_crop(H, ancho_total, alto_juego))
     limites = _limites_sin_facecam(facecam, ancho_juego, W)
     with tempfile.TemporaryDirectory() as tmp:
@@ -266,7 +283,7 @@ def dividir(
             f"[fondo][cam]overlay=0:({alto_cam}-h)/2[arriba];"
             f"[arriba][juego]overlay=0:{alto_cam},setsar=1[v]"
         )
-        _ffmpeg(["-i", str(entrada), "-filter_complex", filtro, "-map", "[v]",
+        _ffmpeg([*_entrada(entrada, desde), "-filter_complex", filtro, "-map", "[v]",
                  "-map", "0:a?", "-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
                  "-c:a", "aac", "-b:a", "128k", str(salida)])
     return salida
@@ -277,13 +294,14 @@ MODOS = {"desenfoque": desenfocar, "recorte": recortar_siguiendo, "dividido": di
 
 def reencuadrar(
     entrada: Path, modo: str = "desenfoque", sufijo: str = "_9x16",
-    facecam: tuple[int, int, int, int] | None = None,
+    facecam: tuple[int, int, int, int] | None = None, desde: float = 0.0,
 ) -> Path:
+    """desde: segundo del archivo donde empieza el clip; lo anterior se descarta."""
     if modo not in MODOS:
         raise ValueError(f"modo debe ser uno de {sorted(MODOS)}, no {modo!r}")
     if modo == "dividido" and facecam is None:
         raise ValueError("el modo dividido necesita --facecam x,y,ancho,alto")
     salida = entrada.with_name(entrada.stem + sufijo + ".mp4")
     if modo == "dividido":
-        return dividir(entrada, salida, facecam)
-    return MODOS[modo](entrada, salida)
+        return dividir(entrada, salida, facecam, desde=desde)
+    return MODOS[modo](entrada, salida, desde=desde)

@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 
 from clips.chat import Mensaje
-from clips.picos import detectar
+from clips.picos import detectar, rafaga, ventana_sugerida
 
 
 def chat_sintetico(duracion=7200, base=1.5, picos=((900, 20), (3000, 15), (5400, 30)), seed=7):
@@ -125,3 +125,55 @@ def test_el_pico_de_una_ventana_ancha_se_ubica_dentro_de_la_rafaga():
     msgs = chat_chico(rafagas=((6021, 30),), ancho=6)
     hallados = detectar(msgs, ventana=30.0)
     assert any(6019 <= p.t <= 6029 for p in hallados), [round(p.t) for p in hallados]
+
+
+# ---------------------------------------------------------------- la ráfaga
+
+def _tiempos(mensajes):
+    return np.array([m.t for m in mensajes])
+
+
+def test_la_rafaga_abarca_la_reaccion_y_no_mucho_mas():
+    # fondo de 1,5 msg/s y una reacción de 20 s, de 2990 a 3010
+    rng = np.random.default_rng(1)
+    t = list(rng.uniform(0, 7200, rng.poisson(1.5 * 7200))) + list(rng.uniform(2990, 3010, 300))
+    inicio, fin = rafaga(np.sort(t), 3000.0)
+    assert abs(inicio - 2990) <= 3 and abs(fin - 3010) <= 3, (inicio, fin)
+
+
+def test_la_rafaga_de_un_chat_chico_no_se_corta_en_el_primer_segundo_vacio():
+    """A 0,15 msg/s de fondo, una reacción de 20 s tiene segundos sin ningún mensaje
+    en el medio. Cortar en el primero daría una ráfaga de 2 o 3 s."""
+    rng = np.random.default_rng(4)
+    fondo = list(rng.uniform(0, 14400, rng.poisson(0.15 * 14400)))
+    # 2 mensajes por segundo de 9000 a 9020, salvo uno de cada tres, que queda vacío
+    rafaga_ = [9000 + s + f for s in range(20) if s % 3 != 2 for f in (0.2, 0.6)]
+    inicio, fin = rafaga(np.sort(fondo + rafaga_), 9004.0)
+    assert inicio <= 9001 and fin >= 9018, (inicio, fin)
+
+
+def test_la_rafaga_de_un_chat_chico_cae_sobre_la_reaccion():
+    # con mensajes al azar la reacción puede salir más apretada que los 20 s
+    # inyectados, pero tiene que estar ahí y no irse a otro lado
+    for semilla in range(10):
+        ms = chat_chico(seed=semilla)
+        p = next(p for p in detectar(ms, ventana=ventana_sugerida(ms)) if abs(p.t - 9010) < 15)
+        assert 8995 <= p.inicio <= p.t <= p.fin <= 9028 and p.fin - p.inicio >= 5, (
+            semilla, p.inicio, p.fin)
+
+
+def test_sin_reaccion_no_hay_rafaga_larga():
+    # en un chat plano lo que se encuentra alrededor de un punto cualquiera es ruido
+    t = _tiempos(chat_sintetico(picos=()))
+    largos = [fin - inicio for inicio, fin in (rafaga(t, c) for c in range(1000, 6000, 500))]
+    assert max(largos) <= 12, largos
+
+
+def test_la_rafaga_en_un_tramo_sin_mensajes_es_de_largo_cero():
+    t = np.sort(np.random.default_rng(2).uniform(0, 1000, 800))
+    assert rafaga(t, 5000.0) == (5000.0, 5000.0)
+
+
+def test_cada_pico_detectado_trae_su_rafaga():
+    for p in detectar(chat_sintetico()):
+        assert p.inicio <= p.t <= p.fin and p.fin - p.inicio >= 4, (p.t, p.inicio, p.fin)

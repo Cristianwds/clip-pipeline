@@ -11,7 +11,7 @@ ese.** Los módulos no se conocen entre sí salvo por lo que dice el grafo.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests/ -q          # 229 tests, corren en unos segundos
+.venv/bin/python -m pytest tests/ -q          # 281 tests, corren en unos segundos
 PYTHONPATH=src .venv/bin/python -m clips.cli "<url>" --top 5 --cortar 3 \
     --formato dividido --facecam 4,268,320,188 --subtitulos --streamer NOMBRE
 ```
@@ -37,12 +37,12 @@ de que la lógica está mezclada con la E/S y conviene separarla.
 | `cortar.py` | Baja solo el tramo de cada pico con `--download-sections` | Calidad del corte, formato de descarga |
 | `reencuadre.py` | Pasa de 16:9 a 9:16: `desenfoque`, `recorte`, `dividido` | Layouts, tracking del sujeto, posición de la facecam |
 | `subtitulos.py` | Transcribe con faster-whisper y quema los subtítulos en ASS | Modelo de ASR, dónde cortan las líneas, estilo del subtítulo |
-| `estilos.py` | Las variantes de formato que rotan entre clips | Agregar una variante, cambiar largos o colores |
+| `estilos.py` | Las variantes de formato que rotan entre clips. No definen el largo | Agregar una variante, cambiar colores o tamaños |
 | `metadatos.py` | Título, gancho, cita y hashtags desde el chat + el audio | Cómo se arman los textos del post |
 | `publicar.py` | Valida cada clip por plataforma (TikTok, Reels, Shorts, X), escribe el manifiesto y un .txt por plataforma listo para pegar | Límites de plataforma, horarios, payload de Postiz |
 | `cuentas.py` | Registro de cuentas y estado de monetización. CLI propia | Agregar una plataforma, actualizar qué paga cada una |
 | `entrega.py` | El paquete para el streamer: una carpeta y un zip por directo con los clips que pasaron el control, el texto de cada uno y un LEEME. No manda nada | Qué entra en el paquete, cómo se llaman los archivos, qué dice el LEEME |
-| `pipeline.py` | Del pico al clip terminado: corte, reencuadre, subtítulos. Un pico a la vez. Se testea reemplazando las tres etapas (`tests/test_pipeline.py`) | El orden de las etapas, qué pasa cuando una falla |
+| `pipeline.py` | Del pico al clip terminado: corte, transcripción, reencuadre, subtítulos. Un pico a la vez. Decide el tramo del clip (`tramo`). Se testea reemplazando las etapas (`tests/test_pipeline.py`) | El orden de las etapas, qué pasa cuando una falla, cuánto entra antes y después del pico |
 | `perfiles.py` | Perfil por streamer: canales, facecam, formato, permiso. CLI propia | Agregar un dato que es constante por streamer |
 | `lote.py` | La cola de VODs y su estado (`datos/lote.json`): picos, veredictos, clips, publicaciones. CLI propia | Qué se recuerda de cada VOD, cómo se descubren VODs nuevos |
 | `revision.py` | Precisión del detector contra los veredictos. Solo funciones puras | Qué cuenta como acierto, por qué cortes se abre la medición |
@@ -105,9 +105,24 @@ módulo y en la nota del vault.
   perfil.
 - **Subtítulos en ASS, no SRT** (`subtitulos.a_ass`). Un SRT quemado sale con el estilo
   por defecto de libass: chico, sin contorno, ilegible sobre imagen clara.
-- **El gancho se arma DESPUÉS de transcribir** (`cli.py`). Si no, sale con la falta de
-  ortografía del chat quemada en pantalla. Por eso `subtitular` está partido en
-  `preparar` y `rematar`.
+- **El resaltado se arma DESPUÉS de transcribir** (`pipeline.producir`). Si no, sale
+  con la falta de ortografía del chat quemada en pantalla. Por eso `transcribir` y
+  `rematar` son dos pasos y entre los dos pasan el ajuste a la frase y el resaltado.
+- **El largo del clip sale de la ráfaga del chat, no de la variante**
+  (`picos.rafaga`, `pipeline.tramo`). Con entradas fijas de 4 a 9 s, en los tres picos
+  transcriptos el momento empezaba entre 12 y 28 s antes del centro: el clip arrancaba
+  tarde. Ahora entra 18 s antes de la ráfaga y sale 4 s después, con tope de 40 s; si no
+  entra se acorta la entrada, nunca la reacción. Los clips quedan de 25 a 40 s, más que
+  las guías: a propósito.
+- **El inicio se ajusta a un comienzo de frase sin codificar de más**
+  (`subtitulos.inicio_de_frase`). Se baja el corte con 6 s de holgura, se transcribe, y
+  el recorte lo hace el mismo ffmpeg que reencuadra (`-ss` antes del `-i`). Solo si hay
+  subtítulos y reencuadre: sin alguno de los dos no hay con qué ubicar la frase o
+  recortar.
+- **Los textos no afirman una disputa ni una elección** (`metadatos.gancho`,
+  `titular_desde`). «¿A o B?» y «A vs B — no se ponía de acuerdo» eran ciertos en 2 de
+  45 picos; contar en qué mensajes va cada palabra marcaba 22. El gancho va por tono y
+  el título dice que el chat repitió la palabra. Detectar la disputa queda para 2.14.
 - **La etapa de publicación no publica** (`publicar.py`). Arma el manifiesto, deja un
   `.txt` por plataforma listo para pegar, y para. `paquete_postiz()` devuelve el payload
   sin hacer ninguna llamada. El usuario decidió publicar a mano en las cuatro
@@ -135,7 +150,11 @@ módulo y en la nota del vault.
   archivo. Solo los clips con control «ok» entran en una entrega.
 - **El corrimiento al rehacer no cambia el `t` del pico** (`lote.producir_pico`). El
   `t` es la identidad del pico en el estado; el corrimiento se aplica a la copia que se
-  produce y queda anotado en `ajuste`.
+  produce y queda anotado en `ajuste`. La ráfaga se mueve con él (`lote.mover_pico`):
+  si no, el corte no cambiaría de lugar.
+- **Los picos viejos miden su ráfaga al producirse** (`lote.producir_pico`). Los
+  guardados antes de que existiera no la traen; se mide con el chat del cache en vez de
+  obligar a reanalizar.
 - **La entrega es por directo y sí se arma sin permiso concedido** (`entrega.armar`).
   Los clips hechos son lo que se manda para pedirlo; el LEEME lo presenta como muestra.
   Solo «negado» la frena. Registrar una publicación sigue exigiendo «concedido».

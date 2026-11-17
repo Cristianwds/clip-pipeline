@@ -510,3 +510,53 @@ def test_producir_usa_el_encuadre_del_vod(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         lote.producir_pico(vod, vod["picos"][0], perfil, log=lambda _: None)
     assert (visto["formato"], visto["facecam"]) == ("dividido", (900, 20, 360, 200))
+
+
+# ---------------------------------------------------------------- la ráfaga en el estado
+
+def test_la_rafaga_se_guarda_y_vuelve():
+    p = Pico(t=600.0, score=5.0, tasa=3.0, inicio=594.0, fin=612.0)
+    d = lote.pico_a_dict(p, 1)
+    assert lote.dict_a_pico(d).inicio == 594.0 and lote.dict_a_pico(d).fin == 612.0
+
+
+def test_un_pico_guardado_antes_de_medir_la_rafaga_se_lee_igual():
+    d = lote.pico_a_dict(Pico(t=600.0, score=5.0, tasa=3.0), 1)
+    del d["rafaga"]
+    p = lote.dict_a_pico(d)
+    assert (p.inicio, p.fin) == (0.0, 0.0)
+
+
+def test_el_corrimiento_mueve_la_rafaga_con_el_pico():
+    """El tramo del clip sale de la ráfaga: si solo se moviera el centro, «Rehacer»
+    con el inicio corrido daría el mismo corte."""
+    from clips import pipeline
+    p = Pico(t=600.0, score=5.0, tasa=3.0, inicio=594.0, fin=612.0)
+    movido = lote.mover_pico(p, -5)
+    assert (movido.t, movido.inicio, movido.fin) == (595.0, 589.0, 607.0)
+    assert pipeline.tramo(movido) == pipeline.tramo(p)          # mismo largo, otro lugar
+    assert p.t == 600.0                                         # el original no se toca
+
+
+def test_correr_un_pico_sin_rafaga_no_le_inventa_una():
+    movido = lote.mover_pico(Pico(t=600.0, score=5.0, tasa=3.0), 4)
+    assert (movido.t, movido.inicio, movido.fin) == (604.0, 0.0, 0.0)
+
+
+def test_un_pico_viejo_mide_su_rafaga_al_producirse(tmp_path, monkeypatch):
+    """Los 61 picos guardados no tienen ráfaga. Producirlos no puede exigir reanalizar:
+    se mide con el chat que ya está en el cache."""
+    import json
+    from clips import chat, pipeline
+    _, vod = _estado_con("bueno")
+    del vod["picos"][0]["rafaga"]
+    monkeypatch.setattr(chat, "CACHE", tmp_path)
+    mensajes = [{"t": 0.5 * i, "autor": "a", "texto": "x"} for i in range(400)]
+    mensajes += [{"t": 95.0 + 0.1 * i, "autor": "b", "texto": "jaja"} for i in range(120)]
+    (tmp_path / f"{chat.slug(vod['url'])}.jsonl").write_text(
+        "\n".join(json.dumps(m) for m in sorted(mensajes, key=lambda m: m["t"])), encoding="utf-8")
+    visto = []
+    monkeypatch.setattr(pipeline, "producir", lambda url, picos, **kw: visto.extend(picos) or [])
+    with pytest.raises(RuntimeError):
+        lote.producir_pico(vod, vod["picos"][0], perfiles.Perfil("Alguien"), log=lambda _: None)
+    assert visto[0].inicio <= 96 and visto[0].fin >= 106, (visto[0].inicio, visto[0].fin)

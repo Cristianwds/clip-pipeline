@@ -23,7 +23,7 @@ import os
 import re
 import shutil
 import subprocess
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -223,14 +223,27 @@ def pico_a_dict(p: Pico, puesto: int) -> dict:
         "score": round(p.score, 2), "foco": round(p.foco, 3), "tasa": round(p.tasa, 2),
         "prioridad": round(p.prioridad, 2), "tema": p.tema, "reaccion": p.reaccion,
         "etiqueta": p.etiqueta, "artefacto": p.es_artefacto,
+        "rafaga": [round(p.inicio, 1), round(p.fin, 1)],
         "veredicto": "", "nota": "", "clip": "", "publicacion": None, "publicado": {},
         "control": "", "nota_control": "", "ajuste": {}, "entregado": None,
     }
 
 
 def dict_a_pico(d: dict) -> Pico:
+    # los picos guardados antes de que se midiera la ráfaga no la traen
+    inicio, fin = d.get("rafaga") or (0.0, 0.0)
     return Pico(t=d["t"], score=d["score"], tasa=d["tasa"], tema=list(d["tema"]),
-                reaccion=list(d["reaccion"]), foco=d["foco"], etiqueta=d["etiqueta"])
+                reaccion=list(d["reaccion"]), foco=d["foco"], etiqueta=d["etiqueta"],
+                inicio=inicio, fin=fin)
+
+
+def mover_pico(pico: Pico, segundos: float) -> Pico:
+    """El mismo pico, movido entero. La ráfaga se mueve con él: el tramo del clip
+    sale de la ráfaga, y si solo se moviera el centro el corte no cambiaría de lugar."""
+    con_rafaga = bool(pico.fin)
+    return replace(pico, t=pico.t + segundos,
+                   inicio=pico.inicio + segundos if con_rafaga else 0.0,
+                   fin=pico.fin + segundos if con_rafaga else 0.0)
 
 
 HEREDADO = ("veredicto", "nota", "clip", "publicacion", "publicado",
@@ -489,9 +502,9 @@ def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
     """Corta, reencuadra y subtitula un pico. Devuelve {clip, publicacion, avisos, ajuste}.
 
     variante y corrimiento son para rehacer un clip que no pasó el control: otra
-    variante cambia el largo y el estilo; el corrimiento mueve el corte entero
-    (negativo = arranca antes). El `t` del pico guardado no se toca, porque es su
-    identidad en el estado: el corrimiento se aplica solo a la copia que se produce.
+    variante cambia el estilo; el corrimiento mueve el corte entero (negativo =
+    arranca antes). El `t` del pico guardado no se toca, porque es su identidad en el
+    estado: el corrimiento se aplica solo a la copia que se produce.
     """
     from . import pipeline
     from .publicar import armar_publicacion, escribir_textos, planificar
@@ -500,7 +513,14 @@ def producir_pico(vod: dict, pico: dict, perfil: mod_perfiles.Perfil | None,
     perfil = perfil or mod_perfiles.Perfil(nombre=vod.get("streamer") or "")
     carpeta = SALIDA / vod["id"]
     a_producir = dict_a_pico(pico)
-    a_producir.t += corrimiento
+    if not a_producir.fin:
+        # un pico analizado antes de que se midiera la ráfaga: se mide ahora, con el
+        # chat que ya está bajado. Sin esto habría que reanalizar todo para producir.
+        ruta = chat.CACHE / f"{chat.slug(vod['url'])}.jsonl"
+        if ruta.exists():
+            a_producir.inicio, a_producir.fin = mod_picos.rafaga(
+                [m.t for m in chat.leer(ruta)], a_producir.t)
+    a_producir = mover_pico(a_producir, corrimiento)
     formato, facecam = encuadre(vod, perfil)
     hechos = pipeline.producir(
         vod["url"], [a_producir], carpeta=carpeta, variante=variante or None,

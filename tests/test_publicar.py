@@ -37,8 +37,9 @@ def test_la_tilde_si_se_corrige_aunque_haya_una_sola_forma():
 
 
 def test_el_titulo_usa_las_palabras_del_chat():
-    t = titular(["romanse×8", "malas×9"], "gracioso", {"romance"}, streamer="AuronPlay")
-    assert "romance" in t.lower() and "AuronPlay" in t
+    # «romanse» es lo más repetido; el audio corrige cómo se escribe
+    t = titular(["romanse×12", "malas×9"], "gracioso", {"romance"}, streamer="AuronPlay")
+    assert t.startswith("Romance") and "AuronPlay" in t
 
 
 def test_hay_titulo_aunque_el_pico_no_tenga_tema():
@@ -233,7 +234,8 @@ def test_en_voz_propia_el_streamer_no_se_nombra_ni_se_da_credito():
     m = _meta("propia")
     assert "AuronPlay" not in m.titulo and "AuronPlay" not in m.descripcion
     assert "Clip del stream" not in m.descripcion and "Fuente:" not in m.descripcion
-    assert "romance" in m.titulo.lower()               # el contenido es el mismo
+    # el contenido es el mismo: cambia solo de quién se habla
+    assert m.titulo.split(":")[0] == _meta("tercero").titulo.split(" — ")[0]
 
 
 def test_en_voz_propia_el_link_al_directo_se_conserva_con_el_minuto():
@@ -249,15 +251,20 @@ def test_en_voz_propia_no_va_el_hashtag_de_canal_de_clips():
 def test_la_voz_de_tercero_no_cambio():
     # es el comportamiento de antes y el del CLI: no puede moverse sin querer
     m = _meta("tercero")
-    assert m.titulo == "Malas vs romance — el chat de AuronPlay no se ponía de acuerdo"
+    assert m.titulo == "Malas — el chat de AuronPlay no paró de escribirlo"
     assert "Clip del stream de AuronPlay." in m.descripcion and "Fuente:" in m.descripcion
     assert "clips" in m.hashtags
     assert metadatos.armar(_TEMA, "gracioso", _URL, 6507, streamer="AuronPlay").titulo == \
         metadatos.armar(_TEMA, "gracioso", _URL, 6507, streamer="AuronPlay", voz="tercero").titulo
 
 
-def test_con_un_solo_tema_no_se_dice_que_el_chat_no_se_ponia_de_acuerdo():
-    assert _meta("propia", tema=["faker×9"]).titulo == "Faker: lo que pedía el chat"
+def test_el_titulo_no_afirma_una_disputa():
+    """«A vs B — el chat no se ponía de acuerdo» era cierto en 2 de 45 picos. En el
+    resto eran una frase de una persona («oi yt pati»), risas o emotes."""
+    for voz in ("tercero", "propia"):
+        t = _meta(voz, tema=["yt×59", "pati×36"]).titulo
+        assert " vs " not in t and "acuerdo" not in t, t
+    assert _meta("propia", tema=["faker×9"]).titulo == "Faker: el chat no paró de escribirlo"
 
 
 def test_sin_tema_el_titulo_propio_habla_del_directo():

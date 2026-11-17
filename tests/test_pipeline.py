@@ -10,6 +10,7 @@ import pytest
 
 from clips import cortar as mod_cortar, estilos, pipeline, reencuadre, subtitulos
 from clips.picos import Pico
+from clips.subtitulos import Palabra
 
 
 def _picos():
@@ -23,8 +24,11 @@ def _picos():
 @pytest.fixture
 def etapas(monkeypatch):
     """Etapas falsas. Devuelve el registro de llamadas y dónde hacer fallar cada una."""
+    # el audio arranca en el segundo 8 del corte: después de cualquier holgura
     r = SimpleNamespace(cortes=[], cortes_que_fallan=set(), reencuadre_falla=False,
-                        subtitulos_fallan=False, rematar=[], audio="romance o malas")
+                        subtitulos_fallan=False, rematar=[], reencuadres=[], lineas=[],
+                        palabras=[Palabra(8.0, 8.4, "romance"), Palabra(8.5, 8.6, "o"),
+                                  Palabra(8.7, 9.1, "malas")])
 
     def cortar(url, picos, duraciones=None, carpeta=None, primero=1, **kw):
         r.cortes.append((picos[0].t, primero, duraciones[0]))
@@ -32,23 +36,25 @@ def etapas(monkeypatch):
             return []
         return [Path(f"pico_{primero:02d}.mp4")]
 
-    def reencuadrar(entrada, modo="desenfoque", facecam=None):
+    def reencuadrar(entrada, modo="desenfoque", facecam=None, desde=0.0):
         if r.reencuadre_falla:
             raise RuntimeError("ffmpeg se cayó")
+        r.reencuadres.append(desde)
         return entrada.with_name(entrada.stem + "_9x16.mp4")
 
-    def preparar(video, modelo, idioma, max_chars):
+    def transcribir(video, modelo="small", idioma=None):
         if r.subtitulos_fallan:
-            raise RuntimeError("la transcripción no devolvió palabras")
-        return [SimpleNamespace(texto=r.audio)], "es"
+            raise RuntimeError("whisper se cayó")
+        return list(r.palabras), "es"
 
     def rematar(video, lineas, **kw):
         r.rematar.append(kw)
+        r.lineas.append(lineas)
         return video.with_name(video.stem + "_sub.mp4")
 
     monkeypatch.setattr(mod_cortar, "cortar", cortar)
     monkeypatch.setattr(reencuadre, "reencuadrar", reencuadrar)
-    monkeypatch.setattr(subtitulos, "preparar", preparar)
+    monkeypatch.setattr(subtitulos, "transcribir", transcribir)
     monkeypatch.setattr(subtitulos, "rematar", rematar)
     return r
 
@@ -102,16 +108,105 @@ def test_producir_un_pico_suelto_da_el_mismo_clip_que_en_la_tanda(etapas):
     assert etapas.cortes == cortes_tanda[2:]          # mismo número y mismo largo
 
 
-def test_cada_clip_se_corta_con_el_largo_de_su_variante(etapas):
-    hechos = _producir(_picos(), formato="nada")
-    por_nombre = {v.nombre: (v.antes, v.despues) for v in estilos.VARIANTES}
-    assert [c[2] for c in etapas.cortes] == [por_nombre[h.variante] for h in hechos]
+# ---------------------------------------------------------------- el tramo del clip
+
+def _con_rafaga(antes, despues, t=600.0):
+    return Pico(t=t, score=6.0, tasa=4.0, inicio=t - antes, fin=t + despues)
 
 
-def test_el_gancho_sale_con_la_ortografia_del_audio_y_no_la_del_chat(etapas):
+def test_el_largo_sale_de_la_rafaga_y_no_de_la_variante(etapas):
+    corta, larga = _con_rafaga(3, 5), _con_rafaga(3, 20, t=1800.0)
+    _producir([corta, larga], formato="nada", variante="directo")
+    (_, _, a), (_, _, b) = etapas.cortes
+    assert sum(b) > sum(a)
+    etapas.cortes.clear()
+    for v in estilos.VARIANTES:
+        _producir([corta], formato="nada", variante=v.nombre)
+    assert len({c[2] for c in etapas.cortes}) == 1
+
+
+def test_el_clip_entra_bastante_antes_de_que_reaccione_el_chat():
+    """Lo que se midió: en los tres picos transcriptos, lo que había que ver empezaba
+    entre 12 y 28 s antes del centro, con el chat arrancando 4 a 6 s antes."""
+    for rafaga_antes in (4, 5, 6):
+        antes, _ = pipeline.tramo(_con_rafaga(rafaga_antes, 8))
+        assert antes >= 22
+
+
+@pytest.mark.parametrize("antes", [0, 4, 13, 39, 45])
+@pytest.mark.parametrize("despues", [0, 3, 13, 27, 45])
+def test_ningun_clip_pasa_el_tope_ni_arranca_sobre_la_reaccion(antes, despues):
+    a, d = pipeline.tramo(_con_rafaga(antes, despues))
+    assert a + d <= pipeline.TOPE
+    assert a >= pipeline.ANTES_MINIMO, "con menos que eso el clip vuelve a arrancar tarde"
+    assert d >= pipeline.DESPUES_MINIMO, "el remate llega cuando el chat ya está bajando"
+
+
+def test_si_no_entra_todo_se_acorta_la_entrada_y_no_la_reaccion():
+    a, d = pipeline.tramo(_con_rafaga(10, 20))        # pediría 28 + 24 = 52
+    assert d == 24 and a == pipeline.TOPE - 24
+
+
+def test_un_pico_sin_rafaga_medida_igual_tiene_tramo():
+    # los picos guardados antes de este cambio no traen la ráfaga
+    assert pipeline.tramo(Pico(t=600.0, score=6.0, tasa=4.0)) == (
+        pipeline.MARGEN_ENTRADA, pipeline.DESPUES_MINIMO)
+
+
+# ---------------------------------------------------------------- el inicio en una frase
+
+def test_solo_se_baja_de_mas_cuando_el_inicio_se_puede_ajustar(etapas):
+    """Ajustar el inicio necesita la transcripción (para saber dónde cae la frase) y
+    el reencuadre (que es el que recorta). Sin alguno de los dos, bajar de más es
+    dejar segundos sobrantes en el clip."""
+    pico = _con_rafaga(4, 8)
+    nominal = pipeline.tramo(pico)
+    for kw in ({"formato": "nada"}, {"formato": "nada", "subtitulos": True},
+               {"formato": "desenfoque"}):
+        etapas.cortes.clear()
+        _producir([pico], **kw)
+        assert etapas.cortes[0][2] == nominal, kw
+    etapas.cortes.clear()
+    _producir([pico], formato="desenfoque", subtitulos=True)
+    assert etapas.cortes[0][2] == (nominal[0] + pipeline.HOLGURA, nominal[1])
+
+
+def test_el_ajuste_a_la_frase_no_pasa_el_tope(etapas):
+    pico = _con_rafaga(10, 20)                         # ya está en el tope
+    _producir([pico], formato="desenfoque", subtitulos=True)
+    assert sum(etapas.cortes[0][2]) == pipeline.TOPE
+
+
+def test_el_clip_arranca_donde_empieza_la_frase_y_los_subtitulos_se_corren(etapas):
+    # del corte se usarían los segundos desde el 6 (la holgura). La frase más
+    # cercana empieza en el 4: el clip arranca ahí y esa palabra pasa a ser el segundo 0
+    etapas.palabras = [Palabra(1.0, 1.5, "antes."), Palabra(4.0, 4.5, "Mirá"),
+                       Palabra(4.6, 5.0, "esto")]
+    (h,) = _producir([_con_rafaga(4, 8)], formato="desenfoque", subtitulos=True)
+    desde = etapas.reencuadres[0]
+    assert desde == pytest.approx(4.0 - subtitulos.RESPIRO)
+    assert h.lineas == ["Mirá esto"], "lo que se dijo antes del inicio no va al clip"
+    assert etapas.lineas[0][0].t0 == pytest.approx(subtitulos.RESPIRO)
+
+
+def test_si_falla_el_reencuadre_los_subtitulos_no_se_corren(etapas):
+    # el archivo que queda es el corte entero, con la holgura adentro
+    etapas.reencuadre_falla = True
+    _producir([_con_rafaga(4, 8)], formato="desenfoque", subtitulos=True)
+    assert etapas.lineas[0][0].t0 == pytest.approx(8.0)
+
+
+def test_sin_voz_el_clip_sale_igual_con_el_inicio_del_chat(etapas):
+    etapas.palabras = []
+    (h,) = _producir([_con_rafaga(4, 8)], formato="desenfoque", subtitulos=True)
+    assert etapas.reencuadres == [pipeline.HOLGURA]
+    assert h.final.name == "pico_01_9x16.mp4" and h.avisos[0].startswith("subtítulos:")
+
+
+def test_lo_quemado_sale_con_la_ortografia_del_audio_y_no_la_del_chat(etapas):
     # el chat escribió «romanse»; el audio dice «romance»
     (h,) = _producir(_picos()[:1], formato="nada", subtitulos=True, variante="directo")
-    assert "romance" in h.gancho.lower() and "romanse" not in h.gancho.lower()
+    assert h.gancho and "romanse" not in h.gancho.lower()
     assert etapas.rematar[0]["gancho"] == h.gancho
     assert "romance" in etapas.rematar[0]["claves"]
 

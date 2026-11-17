@@ -44,6 +44,8 @@ class Pico:
     reaccion: list[str] = field(default_factory=list)  # cómo reacciona ese chat siempre
     foco: float = 0.0                 # qué fracción del chat converge en el tema
     etiqueta: str = ""                # tipo de momento (gracioso, épico, cierre...)
+    inicio: float = 0.0               # dónde arranca la ráfaga del chat (0 = sin medir)
+    fin: float = 0.0                  # y dónde se apaga
 
     @property
     def es_artefacto(self) -> bool:
@@ -132,6 +134,58 @@ def _afinar(t: np.ndarray, inicio: float, fin: float, paso: float = VENTANA_BASE
     return float(mejor + paso / 2)
 
 
+ALCANCE_RAFAGA = 45.0   # segundos a cada lado del pico donde se busca la ráfaga
+NIVEL_RAFAGA = 1 / 3    # a qué altura entre lo normal y el máximo se la da por empezada
+
+
+def rafaga(t, centro: float, alcance: float = ALCANCE_RAFAGA,
+           nivel: float = NIVEL_RAFAGA) -> tuple[float, float]:
+    """Dónde empieza y dónde se apaga la reacción del chat alrededor de un pico.
+
+    `t` son los segundos de los mensajes, ordenados. El pico dice que en un momento
+    hubo mucho chat; el clip necesita saber desde cuándo y hasta cuándo, porque una
+    reacción dura entre 5 y 50 segundos según el caso y un largo fijo queda corto o
+    sobra.
+
+    Se mide cada segundo contra un nivel puesto a un tercio del camino entre la tasa
+    normal de ese tramo del stream y la del máximo. La ráfaga es el tramo que toca el
+    centro y junta el mayor exceso sobre ese nivel. Es mejor que «hasta el primer
+    segundo por debajo del nivel»: en un chat de 0,3 msg/s hay segundos vacíos en
+    plena reacción, y esa regla la cortaría al primero.
+
+    Si el máximo no se despega del ruido de conteo no hay ráfaga y devuelve
+    (centro, centro): sin ese chequeo, en un tramo plano el nivel queda pegado a lo
+    normal y el «tramo de mayor exceso» es un paseo al azar de 50 segundos.
+    """
+    t = np.asarray(t, dtype=float)
+    desde = math.floor(centro - alcance)
+    bordes = desde + np.arange(int(2 * alcance) + 1)
+    por_segundo = np.diff(np.searchsorted(t, bordes)).astype(float)
+    # lo normal: mediana de tramos de 30 s en los diez minutos de cada lado. La
+    # mediana aguanta que la propia ráfaga esté adentro.
+    tramos = np.arange(max(0.0, centro - 600), centro + 600 + 30, 30.0)
+    normal = float(np.median(np.diff(np.searchsorted(t, tramos)))) / 30
+
+    k = int(VENTANA_BASE)
+    ic = int(centro - desde)
+    movil = np.convolve(por_segundo, np.ones(k), "valid") / k
+    maximo = float(movil[max(0, ic - 2 * k):ic + k].max())
+    # la media de k segundos de un conteo tiene desvío sqrt(normal / k)
+    if maximo < normal + 3 * math.sqrt(max(normal, 1 / k) / k):
+        return float(centro), float(centro)
+
+    exceso = por_segundo - (normal + nivel * (maximo - normal))
+    acum = np.concatenate([[0.0], np.cumsum(exceso)])
+    # todos los tramos [a, b) que tocan los k segundos de cada lado del centro
+    a, b = np.arange(len(acum))[:, None], np.arange(len(acum))[None, :]
+    suma = np.where((a < b) & (a <= ic + k) & (b >= ic - k), acum[None, :] - acum[:, None], -np.inf)
+    ia, ib = np.unravel_index(int(np.argmax(suma)), suma.shape)
+    if suma[ia, ib] <= 0:
+        return float(centro), float(centro)
+    # el centro queda siempre adentro: el pico es parte de su ráfaga
+    return float(min(desde + ia, centro)), float(max(desde + ib, centro))
+
+
 def detectar(
     mensajes: list[Mensaje],
     ventana: float = 5.0,
@@ -206,6 +260,8 @@ def detectar(
     if ventana > VENTANA_BASE:
         for p in candidatos:
             p.t = _afinar(t, p.t - ventana / 2, p.t + ventana / 2)
+    for p in candidatos:
+        p.inicio, p.fin = rafaga(t, p.t)
 
     for p, a in zip(candidatos, vocabulario.analizar_picos(
             mensajes, [p.t for p in candidatos], ventana)):

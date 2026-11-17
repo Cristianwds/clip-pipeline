@@ -1,5 +1,7 @@
 """Tests del agrupado y del formato ASS. No necesitan el modelo ni audio."""
 import sys
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -114,3 +116,53 @@ def test_la_linea_no_queda_pelada_por_retroceder():
     out = agrupar(p, max_chars=12, corte_silencio=99, max_dur=99)
     assert all(l.palabras for l in out)
     assert " ".join(l.texto for l in out).split() == ["ah", "y", "que", "se", "vaya"]
+
+
+# ---------------------------------------------------------------- dónde arranca el clip
+
+from clips.subtitulos import RESPIRO, desplazar, inicio_de_frase  # noqa: E402
+
+
+def _frase(*spec):
+    return [Palabra(t0, t1, w) for t0, t1, w in spec]
+
+
+def test_arranca_en_el_comienzo_de_frase_mas_cercano():
+    ps = _frase((1.0, 1.4, "bueno."), (4.0, 4.4, "Mirá"), (4.5, 4.9, "esto"), (8.0, 8.4, "Ahí"))
+    assert inicio_de_frase(ps, 5.0, atras=6) == pytest.approx(4.0 - RESPIRO)
+
+
+def test_un_silencio_largo_tambien_es_comienzo_de_frase():
+    # whisper no siempre pone el punto; un silencio de más de 0,6 s es un corte igual
+    ps = _frase((1.0, 1.4, "y"), (1.5, 1.9, "entonces"), (3.0, 3.4, "agarra"))
+    assert inicio_de_frase(ps, 3.5, atras=6) == pytest.approx(3.0 - RESPIRO)
+
+
+def test_a_igual_distancia_gana_el_de_antes():
+    # sobra un segundo de contexto, no falta
+    ps = _frase((1.15, 1.5, "Uno."), (5.15, 5.5, "Dos."))
+    assert inicio_de_frase(ps, 3.0, atras=6) == pytest.approx(1.0)
+
+
+def test_no_retrocede_mas_de_lo_pedido():
+    # el corte se bajó con `atras` segundos de sobra: antes de eso no hay video
+    ps = _frase((0.5, 0.9, "Hola."), (6.5, 6.9, "Dale"))
+    assert inicio_de_frase(ps, 6.0, atras=2, adelante=3) == pytest.approx(6.5 - RESPIRO)
+
+
+def test_sin_frase_cerca_por_lo_menos_no_parte_una_palabra():
+    ps = _frase((4.8, 5.6, "largaaa"), (5.7, 6.0, "palabra"))
+    assert inicio_de_frase(ps, 5.2, atras=0.3, adelante=0.2) == pytest.approx(5.2)
+    assert inicio_de_frase(ps, 5.2, atras=2, adelante=0.2) == pytest.approx(4.8 - RESPIRO)
+
+
+def test_si_en_el_objetivo_hay_silencio_se_queda_ahi():
+    assert inicio_de_frase([], 6.0, atras=6) == 6.0
+    ps = _frase((0.0, 0.3, "eh"), (20.0, 20.3, "bueno"))
+    assert inicio_de_frase(ps, 6.0, atras=2, adelante=3) == 6.0
+
+
+def test_desplazar_deja_las_palabras_en_el_tiempo_del_clip():
+    ps = _frase((1.0, 1.4, "antes"), (4.0, 4.4, "Mirá"), (4.5, 4.9, "esto"))
+    assert [(p.t0, p.texto) for p in desplazar(ps, 3.85)] == [
+        (pytest.approx(0.15), "Mirá"), (pytest.approx(0.65), "esto")]
