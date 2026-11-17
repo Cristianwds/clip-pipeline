@@ -281,8 +281,12 @@ function vistaTablero(m) {
 }
 
 // ---------- revisión
+// Cuánto antes del pico arranca el video. Eran 20 s, pensando solo en que el chat
+// reacciona tarde. Al medir tres picos con la transcripción, lo que hay que ver empezaba
+// entre 12 y 28 s antes del centro: con 20 se ponía el veredicto sin ver el planteo.
+const MARGEN_REVISION = 30;
 function urlReproductor(v, t) {
-  const desde = Math.max(0, Math.floor(t) - 20);   // el chat reacciona tarde: se arranca antes
+  const desde = Math.max(0, Math.floor(t) - MARGEN_REVISION);
   if (v.plataforma === "twitch") {
     const id = (v.url.match(/videos\/(\d+)/) || [])[1];
     const hms = `${Math.floor(desde / 3600)}h${Math.floor(desde % 3600 / 60)}m${desde % 60}s`;
@@ -310,7 +314,7 @@ function vistaRevision(m) {
     claveReproductor = clave;
     m.innerHTML = `<div class="revision">
       <div><iframe class="reproductor" src="${esc(u.embed)}" allow="autoplay; fullscreen; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" title="VOD en el momento del pico"></iframe>
-        <p class="tenue chica">Arranca 20 s antes del pico. Si no carga (algunos canales bloquean el embebido),
+        <p class="tenue chica">Arranca ${MARGEN_REVISION} s antes del pico. Si no carga (algunos canales bloquean el embebido),
           <a href="${esc(u.fuera)}" target="_blank" rel="noopener">abrilo en la plataforma</a>.</p></div>
       <div class="tarjeta" id="ficha"></div></div>`;
   }

@@ -74,7 +74,7 @@ PYTHONPATH=src .venv/bin/python -m clips.panel      # http://localhost:8765
 El panel tiene estas pestañas:
 
 - **Tablero**: la cola de VODs, la precisión medida y el registro de lo que está corriendo.
-- **Revisión**: un pico a la vez, con el VOD embebido 20 segundos antes del momento.
+- **Revisión**: un pico a la vez, con el VOD embebido 30 segundos antes del momento.
   `B` bueno, `D` dudoso, `M` malo, `S` saltar, `P` bueno y producir el clip.
 - **Clips**: cada clip producido con su texto por plataforma para copiar, el archivo
   para bajar y el link de subida. Ahí se le pone el **control** al clip terminado
